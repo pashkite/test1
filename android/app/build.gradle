@@ -1,0 +1,16 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'dev.ashkite.limbusauto'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'dev.ashkite.limbusauto'
+        minSdk 30
+        targetSdk 35
+        versionCode 2
+        versionName '0.2.0-rust'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

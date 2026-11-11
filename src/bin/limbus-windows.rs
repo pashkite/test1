@@ -1,6 +1,6 @@
 #[cfg(windows)]
 mod app {
-    use std::{fs, io, path::Path, thread, time::{Duration, Instant}};
+    use std::{fs, path::Path, thread, time::{Duration, Instant}};
     use enigo::{Button, Coordinate, Direction, Enigo, Mouse, Settings};
     use image::{imageops, RgbaImage};
     use screenshots::Screen;
@@ -43,7 +43,9 @@ mod app {
     fn config_path() -> &'static str { "config.tsv" }
     fn capture(label: &str, x: i32, y: i32) -> Result<(), String> {
         if !["win", "fire", "finish"].contains(&label) { return Err("Unknown label".into()); }
-        if !foreground_is_game() { return Err("Focus the Limbus game window before capturing".into()); }
+        println!("Switch to the Limbus game window now (5 seconds)...");
+        thread::sleep(Duration::from_secs(5));
+        if !foreground_is_game() { return Err("Game was not foreground after countdown".into()); }
         let (image, ox, oy) = screen()?;
         // Capture arguments use monitor-local pixels.
         let piece = patch(&image, x, y).ok_or("Point is too near the screen edge")?;
@@ -82,6 +84,8 @@ mod app {
         let fire=load("fire")?.ok_or("Capture fire first")?;
         let finish=load("finish")?;
         let mut enigo=Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
+        println!("Switch to the Limbus game window now (5 seconds)...");
+        thread::sleep(Duration::from_secs(5));
         let started=Instant::now();
         let mut actions=0usize;
         let mut failures=0usize;

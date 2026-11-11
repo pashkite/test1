@@ -6,7 +6,7 @@ This is an **untested experimental MVP**, not a complete stage or Mirror Dungeon
 
 ## Build / Downloads
 
-GitHub Actions -> **Build Android APK and Windows** -> most recent successful run -> **Artifacts** -> \`LimbusAutoRust-android-debug\` (debug-signed APK) or \`LimbusAutoRust-windows\` (EXE). Do not treat a workflow file as evidence of a completed build; check actual Actions results.
+GitHub Actions -> **Build Android APK and Windows** -> most recent successful run -> **Artifacts** -> `LimbusAutoRust-android-debug` (debug-signed APK) or `LimbusAutoRust-windows` (EXE). Do not treat a workflow file as evidence of a completed build; check actual Actions results.
 
 ## Android steps
 
@@ -20,25 +20,25 @@ Screen dimensions and button positions must remain unchanged. Calibrate only whe
 
 ## Windows steps
 
-Build using GitHub Actions or \`cargo build --release --bin limbus-windows\` on Windows.
+Build using GitHub Actions or `cargo build --release --bin limbus-windows` on Windows.
 
-Run the EXE in a terminal while Limbus Company is in the foreground. Use the **primary monitor**. Register **pixel coordinates of the middle** of the buttons from the full monitor capture:
+Run the EXE in a terminal. After you press Enter for each capture or run command, **switch to the Limbus window within five seconds**. Use the **primary monitor**. Register **pixel coordinates of the middle** of the buttons from the full monitor capture:
 
-\`\`\`powershell
+```powershell
 .\limbus-windows.exe capture win 1800 900
 .\limbus-windows.exe capture fire 2010 960
 .\limbus-windows.exe capture finish 1050 520  # optional clear-screen sentinel
 .\limbus-windows.exe run
-\`\`\`
+```
 
-Replace coordinates with those from your own display. The capture command writes \`templates/win.png\` etc. and a local config. The controller refuses to tap if the foreground title is not "Limbus", stops on mismatch, and uses at most 60 clicks in 20 minutes. Stop with Ctrl+C.
+Replace coordinates with those from your own display. The capture command writes `templates/win.png` etc. and a local config. The controller refuses to tap if the foreground title is not "Limbus", stops on mismatch, and uses at most 60 clicks in 20 minutes. Stop with Ctrl+C.
 
 ## Implementation
 
-- \`src/lib.rs\`: shared Rust pixel similarity engine and unit tests.
-- \`src/bin/limbus-windows.rs\`: Windows screen capture/mouse input and position-based template matching.
-- \`android/app/src/main/java/dev/ashkite/limbusauto\`: native Android bridge using screenshot and accessibility gestures; \`NativeVision\` invokes the Rust .so through JNI.
-- \`.github/workflows/build.yml\`: compiles Rust for Android arm64, packages in the APK, builds Windows EXE, uploads artifacts.
+- `src/lib.rs`: shared Rust pixel similarity engine and unit tests.
+- `src/bin/limbus-windows.rs`: Windows screen capture/mouse input and position-based template matching.
+- `android/app/src/main/java/dev/ashkite/limbusauto`: native Android bridge using screenshot and accessibility gestures; `NativeVision` invokes the Rust .so through JNI.
+- `.github/workflows/build.yml`: compiles Rust for Android arm64, packages in the APK, builds Windows EXE, uploads artifacts.
 
 ### Known limitations
 

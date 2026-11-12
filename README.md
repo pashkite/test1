@@ -1,4 +1,4 @@
-# Limbus Auto Rust 0.4.1 — screenshot icon pairing prototype
+# Limbus Auto Rust 0.4.2 — screenshot icon pairing prototype
 
 **Experimental / unverified in actual gameplay.** This app uses the **one screenshot supplied by the user** to build a small pair of grayscale icon templates. The main action is no longer dependent on OCR extracting button text, which previously led to mistaps.
 
@@ -37,3 +37,11 @@ References:
 - Press **HIDE** to collapse to a tiny movable `DRAG / OPEN` handle. Hiding also stops the automation. Press **OPEN** to restore controls. This allows story Skip buttons to be accessible.
 - Better error messages if screen capture is not landscape or JNI/templates are missing.
 - Icon patterns updated from the second 1536x709 screenshot of the user's device; the prototype still needs device verification.
+
+## v0.4.2: hide without pausing + marker alignment
+
+- HIDE collapses controls but **keeps an already-running AUTO session active**, as requested. Tiny **DRAG RUN / OPEN** indicates that automation is active. To stop: **OPEN -> STOP**, or disable the Accessibility Service in Android Settings.
+- The preview circles now subtract the marker overlay window's real `getLocationOnScreen()` origin. On some phones, the screenshot and accessibility overlay canvases have different horizontal origins because of system cutouts/insets. Gesture coordinates are deliberately not shifted; the circles show where the engine believes taps should occur.
+- All auto taps require plausible spacing and position of **both** combat controls; this reduces false taps in menus and story scenes. Unrecognized layouts do not trigger taps and eventually stop.
+- SCAN reports template confidence and layout mismatch; Android logging includes raw screenshot-derived coordinates for diagnosis.
+- This remains unverified on a live device. Only start AUTO when both preview rings are exactly on the intended controls. The story UI and Mirror Dungeon are not handled.

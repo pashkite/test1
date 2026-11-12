@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <queries><package android:name="com.ProjectMoon.LimbusCompany" /></queries>
-    <application android:allowBackup="false" android:label="Limbus Auto Rust v0.5"
+    <application android:allowBackup="false" android:label="Limbus Auto Rust v0.5.1"
         android:usesCleartextTraffic="false" android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".CalibrationActivity" android:exported="false" android:screenOrientation="landscape" />
         <activity android:name=".MainActivity" android:exported="true">
@@ -9,7 +9,7 @@
         </activity>
         <service android:name=".AutoService" android:exported="true"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:label="Limbus Auto Rust v0.5 접근성">
+            android:label="Limbus Auto Rust v0.5.1 접근성">
             <intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter>
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/service_config"/>
         </service>

@@ -21,7 +21,7 @@ public final class MainActivity extends Activity {
         super.onCreate(b);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20),dp(15),dp(20),dp(15));
-        root.addView(text("Limbus Auto Rust 0.4.2",23));
+        root.addView(text("Limbus Auto Rust 0.5.1",23));
         root.addView(text("실험용 아이콘 인식 버전 / Android 11 이상 / ARM64 / PC 연결 불필요",15));
         Button enable=new Button(this);enable.setText("1. 접근성 서비스 설정");
         enable.setOnClickListener(v->new AlertDialog.Builder(this)

@@ -49,6 +49,36 @@ public final class AutoService extends AccessibilityService {
     private int phase=PHASE_WIN, taps=0, miss=0, steady=0, clearSteady=0;
     private long begun=0, stateSince=0;
     private Rect previousBox=null;
+    private String lastForeground="대기 중";
+    private long lastGameEvent=0L;
+    private boolean isSystemPackage(String pkg) {
+        return pkg.equals("android") || pkg.equals("com.android.systemui")
+            || pkg.startsWith("com.google.android.inputmethod")
+            || pkg.startsWith("com.samsung.android.honeyboard");
+    }
+    private String activeRootPackage() {
+        try {
+            android.view.accessibility.AccessibilityNodeInfo root=getRootInActiveWindow();
+            if(root==null || root.getPackageName()==null) return null;
+            return root.getPackageName().toString();
+        } catch(Exception e){ return null; }
+    }
+    // A system dialog, game overlay, or IME is not proof that Limbus left the foreground.
+    private boolean verifyGame() {
+        String root=activeRootPackage();
+        if(GAME.equals(root)) {
+            gameVisible=true;
+            lastGameEvent=SystemClock.elapsedRealtime();
+            lastForeground=GAME;
+            return true;
+        }
+        if(root!=null && !getPackageName().equals(root) && !isSystemPackage(root)) {
+            gameVisible=false;
+            lastForeground=root;
+            return false;
+        }
+        return gameVisible;
+    }
 
     private static final class Candidate {
         final int type;
@@ -60,12 +90,12 @@ public final class AutoService extends AccessibilityService {
     private void next(long millis) { h.removeCallbacks(loop);if(running)h.postDelayed(loop,millis); }
     private final Runnable loop=()->{
         if(!running)return;
-        if(!gameVisible){stop("게임이 화면에 없음");return;}
+        if(!verifyGame()){stop("게임 화면을 찾지 못함");return;}
         if(taps>=MAX_TAPS||SystemClock.elapsedRealtime()-begun>=MAX_MILLIS){stop("안전 제한");return;}
         // The overlay must not appear in the OCR screenshot.
         if(overlay!=null)overlay.setVisibility(View.INVISIBLE);
         h.postDelayed(()->screenshot(frame->{
-            if(overlay!=null)overlay.setVisibility(gameVisible?View.VISIBLE:View.GONE);
+            if(overlay!=null)overlay.setVisibility(View.VISIBLE);
             if(!running){if(frame!=null)frame.recycle();return;}
             if(frame==null){stop("화면 캡처 실패");return;}
             recognize(frame);
@@ -96,11 +126,12 @@ public final class AutoService extends AccessibilityService {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             android.graphics.PixelFormat.TRANSLUCENT);
         lp.gravity=Gravity.TOP|Gravity.END;lp.x=12;lp.y=90;
-        wm.addView(overlay,lp);overlay.setVisibility(View.GONE);
+        wm.addView(overlay,lp);overlay.setVisibility(View.VISIBLE);
         try{
             if(getRootInActiveWindow()!=null&&getRootInActiveWindow().getPackageName()!=null){
                 gameVisible=GAME.contentEquals(getRootInActiveWindow().getPackageName());
-                overlay.setVisibility(gameVisible?View.VISIBLE:View.GONE);
+                if(gameVisible) lastGameEvent=SystemClock.elapsedRealtime();
+                post(gameVisible?"서비스 실행 · 림버스 감지":"서비스 실행 · 게임 화면 대기");
             }
         }catch(Exception ignored){}
     }
@@ -108,11 +139,18 @@ public final class AutoService extends AccessibilityService {
         if(event==null||event.getEventType()!=AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED||event.getPackageName()==null)return;
         String pkg=event.getPackageName().toString();
         if(pkg.equals(getPackageName()))return;
-        boolean active=GAME.equals(pkg);
-        if(active!=gameVisible){
-            gameVisible=active;
-            if(overlay!=null)overlay.setVisibility(active?View.VISIBLE:View.GONE);
-            if(!active&&running)stop("다른 앱 전환");
+        if(GAME.equals(pkg)){
+            gameVisible=true;lastGameEvent=SystemClock.elapsedRealtime();lastForeground=pkg;
+            if(!running)post("서비스 활성 · 림버스 감지됨");
+            return;
+        }
+        // Only an actual non-system foreground app should invalidate the game state.
+        // Never hide the control window on a mere window-state event.
+        if(isSystemPackage(pkg))return;
+        if(!verifyGame()){
+            lastForeground=pkg;
+            if(running)stop("게임 종료 또는 다른 앱 전환");
+            else post("서비스 활성 · 림버스 대기");
         }
     }
     @Override public void onInterrupt(){stop("서비스 중단");}
@@ -128,7 +166,9 @@ public final class AutoService extends AccessibilityService {
     }
     private void begin(){
         if(!NativeVision.AVAILABLE){post("Rust 라이브러리 없음");return;}
-        if(!gameVisible){post("게임 화면에서 실행해 줘");return;}
+        if(!verifyGame()){
+            post("게임 감지 실패 · 화면: "+lastForeground);return;
+        }
         if(captureBusy||recognizeBusy){post("화면 인식 중");return;}
         phase=PHASE_WIN;taps=0;miss=0;steady=0;clearSteady=0;previousBox=null;
         begun=stateSince=SystemClock.elapsedRealtime();running=true;
@@ -223,7 +263,7 @@ public final class AutoService extends AccessibilityService {
         previousBox=new Rect(c.box);
         if(steady<2){post("인식 재확인: "+c.label);next(950);return;}
         steady=0;previousBox=null;
-        if(!gameVisible){stop("게임이 화면에 없음");return;}
+        if(!verifyGame()){stop("게임에서 벗어남");return;}
         Path tap=new Path();tap.moveTo(c.box.centerX(),c.box.centerY());
         GestureDescription gesture=new GestureDescription.Builder()
             .addStroke(new GestureDescription.StrokeDescription(tap,0,95)).build();

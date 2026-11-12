@@ -38,14 +38,14 @@ jobs:
       - name: Build debug APK (signed by Android debug key)
         working-directory: android
         run: gradle :app:assembleDebug --no-daemon
-      - name: Verify APK includes Rust and v0.4 package
+      - name: Verify APK includes Rust and v0.5 package
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
           $ANDROID_SDK_ROOT/build-tools/35.0.0/aapt dump badging android/app/build/outputs/apk/debug/app-debug.apk | grep 'dev.ashkite.limbusauto.icons'
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'lib/arm64-v8a/liblimbus_core.so'
       - uses: actions/upload-artifact@v4
         with:
-          name: LimbusAutoRust-android-icons-v0.4
+          name: LimbusAutoRust-android-dual-state-v0.5
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30

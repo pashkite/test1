@@ -181,3 +181,97 @@ mod template_tests{
     #[test]fn constant_patch_cannot_match(){let f=vec![90.0f32;240*432];let t=vec![55i8;29*32];assert!(ncc(&f,432,240,&t,29,32,280,173)<0.0);}
     #[test]fn bounding_checks(){let p=vec![0xff000000u32;240*432];let g=vec![0i8;29*32];let w=vec![0i8;31*15];let r=locate_pair(&p,432,240,&g,&w);assert!(r[4]<=0.0);}
 }
+
+
+// v0.5 finds the text-button panel in either idle or win-selected state.
+// This anchor is stable even as the adjacent START gear changes appearance.
+// The reference assets are normalized to a 240-pixel-high landscape screenshot.
+const PANEL_W:usize=15;
+const PANEL_H:usize=29;
+fn refined_panel(gray:&[f32],fw:usize,fh:usize,templ:&[i8])->(f32,usize,usize){
+    let min_x=fw.saturating_sub(185);let max_x=fw.saturating_sub(20).min(fw-PANEL_W);
+    let min_y=145usize;let max_y=206usize.min(fh-PANEL_H);
+    let mut best=(-2f32,min_x,min_y);
+    for y in (min_y..=max_y).step_by(2){
+        for x in (min_x..=max_x).step_by(2){
+            let score=ncc(gray,fw,fh,templ,PANEL_W,PANEL_H,x,y);
+            if score>best.0 {best=(score,x,y);}
+        }
+    }
+    let previous=best;
+    for y in previous.2.saturating_sub(2).max(min_y)..=(previous.2+2).min(max_y){
+        for x in previous.1.saturating_sub(2).max(min_x)..=(previous.1+2).min(max_x){
+            let score=ncc(gray,fw,fh,templ,PANEL_W,PANEL_H,x,y);
+            if score>best.0 {best=(score,x,y);}
+        }
+    }
+    best
+}
+fn locate_panel_controls(pixels:&[u32],width:usize,height:usize,idle:&[i8],selected:&[i8])->[f32;7]{
+    let invalid=[-1f32;7];
+    if height!=240||width<320||width>1200||pixels.len()!=width*height||
+       idle.len()!=PANEL_W*PANEL_H||selected.len()!=PANEL_W*PANEL_H{return invalid;}
+    let gray:Vec<f32>=pixels.iter().map(|c|{
+        (((c>>16)&255) as f32*.299+((c>>8)&255) as f32*.587+
+        (c&255) as f32*.114).round()
+    }).collect();
+    let a=refined_panel(&gray,width,height,idle);
+    let b=refined_panel(&gray,width,height,selected);
+    if a.1.abs_diff(b.1)>5||a.2.abs_diff(b.2)>5{return invalid;}
+    let (x,y)=if b.0>a.0 {(b.1,b.2)}else{(a.1,a.2)};
+    if a.0.max(b.0)<.70{return invalid;}
+    // Relative gear location from two different screenshots with different UI widths.
+    let gx=x as isize-41;let gy=y as isize+11;
+    if gx<6||gy<6||gx+6>=width as isize||gy+6>=height as isize{return invalid;}
+    let mut bright=0usize;
+    for dy in -5..=5 {
+        for dx in -5..=5 {
+            let p=pixels[(gy+dy)as usize*width+(gx+dx)as usize];
+            let r=((p>>16)&255) as f32;
+            let g=((p>>8)&255) as f32;
+            let bl=(p&255) as f32;
+            if r>205.0&&g>95.0&&g<236.0&&bl<155.0&&r>g*1.14{bright+=1;}
+        }
+    }
+    [x as f32+1.0,y as f32+7.0,gx as f32,gy as f32,a.0,b.0,bright as f32/121.0]
+}
+#[cfg(target_os="android")]
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_dev_ashkite_limbusauto_NativeVision_locateControls(
+    mut env:jni::JNIEnv,_class:jni::objects::JClass,
+    pixels:jni::objects::JIntArray,width:jni::sys::jint,height:jni::sys::jint,
+    idle:jni::objects::JByteArray,ready:jni::objects::JByteArray
+)->jni::sys::jfloatArray{
+    let result=(||->Option<[f32;7]>{
+        if width<320||width>1200||height!=240{return None;}
+        if env.get_array_length(&pixels).ok()? as usize!=width as usize*height as usize{return None;}
+        if env.get_array_length(&idle).ok()? as usize!=PANEL_W*PANEL_H||
+           env.get_array_length(&ready).ok()? as usize!=PANEL_W*PANEL_H{return None;}
+        let mut a=vec![0i8;PANEL_W*PANEL_H];
+        let mut b=vec![0i8;PANEL_W*PANEL_H];
+        let mut p=vec![0i32;width as usize*height as usize];
+        env.get_byte_array_region(&idle,0,&mut a).ok()?;
+        env.get_byte_array_region(&ready,0,&mut b).ok()?;
+        env.get_int_array_region(&pixels,0,&mut p).ok()?;
+        let argb:Vec<u32>=p.into_iter().map(|v|v as u32).collect();
+        Some(locate_panel_controls(&argb,width as usize,height as usize,&a,&b))
+    })().unwrap_or([-1f32;7]);
+    let Ok(output)=env.new_float_array(7)else{return std::ptr::null_mut();};
+    if env.set_float_array_region(&output,0,&result).is_err(){return std::ptr::null_mut();}
+    output.into_raw()
+}
+#[cfg(test)]
+mod control_test {
+    use super::*;
+    #[test]fn bad_size_is_rejected(){
+        let src=vec![0xff000000u32;240*520];
+        assert_eq!(locate_panel_controls(&src,520,240,&[],&[])[0],-1.0);
+    }
+    #[test]fn constant_frame_is_rejected(){
+        let src=vec![0xff080808u32;240*520];
+        let idle=vec![7i8;PANEL_W*PANEL_H];
+        let selected=vec![8i8;PANEL_W*PANEL_H];
+        assert_eq!(locate_panel_controls(&src,520,240,&idle,&selected)[0],-1.0);
+    }
+}

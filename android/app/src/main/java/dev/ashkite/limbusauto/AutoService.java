@@ -40,6 +40,7 @@ public final class AutoService extends AccessibilityService {
     private TextView status;
     private TextView dragTitle;
     private Button collapseButton;
+    private Button emergencyStop;
     private LinearLayout actionButtons;
     private WindowManager.LayoutParams panelParams;
     private boolean collapsed=false;
@@ -47,6 +48,8 @@ public final class AutoService extends AccessibilityService {
     private int downPanelX,downPanelY;
     private boolean game=false,running=false,capturing=false;
     private int phase=PHASE_WIN,confirmed=0,taps=0,failures=0;
+    private boolean waitingForIdle=false;
+    private long waitingSince=0L,phaseSince=0L;
     private long startTime=0,lastTouch=0;
     private float lastX=-1,lastY=-1,rememberGearX=-1,rememberGearY=-1;
     private int lastFrameWidth=0,lastFrameHeight=0;
@@ -111,7 +114,7 @@ public final class AutoService extends AccessibilityService {
         LinearLayout header=new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         dragTitle=new TextView(this);
-        dragTitle.setText("DRAG  ·  LIMBUS AUTO 0.4.2");
+        dragTitle.setText("DRAG  ·  LIMBUS AUTO 0.5");
         dragTitle.setTextColor(Color.WHITE);dragTitle.setTextSize(14f);
         dragTitle.setPadding(dp(8),dp(6),dp(8),dp(6));
         dragTitle.setGravity(Gravity.CENTER_VERTICAL);
@@ -137,6 +140,12 @@ public final class AutoService extends AccessibilityService {
         collapseButton=new Button(this);
         collapseButton.setAllCaps(false);collapseButton.setText("HIDE");
         collapseButton.setTextSize(12f);collapseButton.setMinHeight(0);collapseButton.setMinWidth(0);
+        emergencyStop=new Button(this);
+        emergencyStop.setText("STOP");emergencyStop.setTextSize(11f);emergencyStop.setAllCaps(false);
+        emergencyStop.setMinWidth(0);emergencyStop.setMinHeight(0);
+        emergencyStop.setVisibility(View.GONE);
+        emergencyStop.setOnClickListener(v->stop("Emergency stop"));
+        header.addView(emergencyStop,new LinearLayout.LayoutParams(dp(72),dp(42)));
         header.addView(collapseButton,new LinearLayout.LayoutParams(dp(72),dp(42)));
         collapseButton.setOnClickListener(v->toggleCompact());
         overlay.addView(header);
@@ -188,7 +197,8 @@ public final class AutoService extends AccessibilityService {
         // OPEN then STOP remains available at all times.
         status.setVisibility(collapsed?View.GONE:View.VISIBLE);
         actionButtons.setVisibility(collapsed?View.GONE:View.VISIBLE);
-        dragTitle.setText(collapsed?(running?"DRAG RUN":"DRAG"):"DRAG  ·  LIMBUS AUTO 0.4.2");
+        dragTitle.setText(collapsed?(running?"RUN":"DRAG"):"DRAG  ·  LIMBUS AUTO 0.5");
+        emergencyStop.setVisibility(collapsed&&running?View.VISIBLE:View.GONE);
         dragTitle.setLayoutParams(collapsed
             ? new LinearLayout.LayoutParams(dp(72),dp(42))
             : new LinearLayout.LayoutParams(0,dp(42),1f));
@@ -216,7 +226,8 @@ public final class AutoService extends AccessibilityService {
     }
     private void stop(String reason){
         running=false;h.removeCallbacks(loop);confirmed=0;lastX=-1;lastY=-1;
-        if(collapsed && dragTitle!=null)dragTitle.setText("DRAG STOP");
+        if(collapsed && dragTitle!=null)dragTitle.setText("DRAG");
+        if(emergencyStop!=null)emergencyStop.setVisibility(View.GONE);
         if(marker!=null)marker.setVisibility(View.GONE);
         say("STOP - "+reason);
     }
@@ -238,141 +249,159 @@ public final class AutoService extends AccessibilityService {
             });
         }catch(Exception e){capturing=false;callback.got(null);}
     }
-    private static final class Match{
-        float gx,gy,wx,wy,gs,ws;
-        int w,h;
-        boolean layoutValid(){
-            // Pair of bottom-right controls must be separated like the real combat UI,
-            // not merely be two visually similar textures elsewhere on the screen.
-            float gap=wx-gx;
-            return w>h*1.2f &&
-                gx>w*.57f && gx<w*.84f &&
-                gy>h*.61f && gy<h*.87f &&
-                gap>w*.055f && gap<w*.11f &&
-                Math.abs(wy-gy)<h*.048f;
+
+    private static final int IDLE=0,READY=1,UNKNOWN=2;
+    private static final class Match {
+        float wx,wy,gx,gy,idleScore,readyScore,orange;
+        int state=UNKNOWN,w,h;
+        boolean valid(){return state!=UNKNOWN;}
+        String brief(){
+            String what=state==IDLE?"IDLE":state==READY?"READY":"UNCERTAIN";
+            return what+" I"+Math.round(idleScore*100)+" R"+Math.round(readyScore*100)+
+                " O"+Math.round(orange*100);
         }
-        boolean strong(){return layoutValid()&&gs>=GEAR_MIN&&ws>=WIN_MIN;}
-        boolean plausible(){return layoutValid()&&gs>=.55f&&ws>=.62f;}
-        String brief(){return "GEAR "+Math.round(gs*100)+"% / WIN "+Math.round(ws*100)+"%"+
-            (layoutValid()?"":" - layout mismatch");}
     }
     private String diagnosis(Bitmap frame){
-        if(!NativeVision.AVAILABLE)return "Rust native library unavailable";
-        if(VisionTemplates.GEAR.length!=29*32)return "Gear template invalid";
-        if(VisionTemplates.WIN.length!=31*15)return "Win template invalid";
-        int w=frame.getWidth(),height=frame.getHeight();
-        if(w<=height*1.2f)return "Portrait capture "+w+"x"+height;
-        int scaledW=Math.round(w*240f/height);
-        if(scaledW<320||scaledW>1200)return "Unsupported ratio "+w+"x"+height;
-        return "Vision returned no coordinates ("+w+"x"+height+")";
+        if(!NativeVision.AVAILABLE)return "Native library missing";
+        if(VisionTemplates.IDLE.length!=435||VisionTemplates.SELECTED.length!=435)
+            return "Template file unavailable";
+        int w=frame.getWidth(),h=frame.getHeight();
+        if(w<=h*1.2f)return "Portrait frame "+w+"x"+h;
+        int sw=Math.round(w*240f/h);
+        if(sw<320||sw>1200)return "Ratio not supported "+w+"x"+h;
+        return "Panel not found "+w+"x"+h;
     }
     private Match match(Bitmap frame){
-        if(!NativeVision.AVAILABLE||VisionTemplates.GEAR.length!=29*32||
-            VisionTemplates.WIN.length!=31*15)return null;
-        int w=frame.getWidth(),height=frame.getHeight();
-        if(w<=height*1.2f)return null;
-        int scaledW=Math.round(w*240f/height);
-        if(scaledW<320||scaledW>1200)return null;
-        Bitmap small=Bitmap.createScaledBitmap(frame,scaledW,240,true);
-        int[] pixels=new int[scaledW*240];small.getPixels(pixels,0,scaledW,0,0,scaledW,240);
+        if(!NativeVision.AVAILABLE||VisionTemplates.IDLE.length!=435||
+            VisionTemplates.SELECTED.length!=435)return null;
+        int w=frame.getWidth(),ht=frame.getHeight();
+        if(w<=ht*1.2f)return null;
+        int sw=Math.round(w*240f/ht);
+        if(sw<320||sw>1200)return null;
+        Bitmap small=Bitmap.createScaledBitmap(frame,sw,240,true);
+        int[] pixels=new int[sw*240];
+        small.getPixels(pixels,0,sw,0,0,sw,240);
         if(small!=frame)small.recycle();
-        float[] result=NativeVision.findPair(pixels,scaledW,240,VisionTemplates.GEAR,VisionTemplates.WIN);
-        if(result==null||result.length!=6)return null;
-        Match m=new Match();m.w=w;m.h=height;
-        m.gx=result[0]*w/scaledW;m.gy=result[1]*height/240f;
-        m.wx=result[2]*w/scaledW;m.wy=result[3]*height/240f;
-        m.gs=result[4];m.ws=result[5];return m;
+        float[] r=NativeVision.locateControls(pixels,sw,240,
+            VisionTemplates.IDLE,VisionTemplates.SELECTED);
+        if(r==null||r.length!=7||r[0]<0)return null;
+        Match m=new Match();m.w=w;m.h=ht;
+        m.wx=r[0]*w/sw;m.wy=r[1]*ht/240f;
+        m.gx=r[2]*w/sw;m.gy=r[3]*ht/240f;
+        m.idleScore=r[4];m.readyScore=r[5];m.orange=r[6];
+        if(m.orange<=.18f && m.idleScore>=.82f &&
+           m.idleScore>=m.readyScore-.06f)m.state=IDLE;
+        if(m.orange>=.52f && m.readyScore>=.82f &&
+           m.readyScore>=m.idleScore-.06f)m.state=READY;
+        return m;
     }
     private void preview(){
-        if(collapsed){say("Open controls first");return;}
         if(running){say("STOP before SCAN");return;}
-        if(!gameForeground()){say("Open Limbus battle first");return;}
+        if(!gameForeground()){say("Open Limbus battle");return;}
         if(marker!=null)marker.setVisibility(View.GONE);
-        say("Scanning icons...");
+        say("Scanning idle/selected...");
         h.postDelayed(()->screenshot(frame->{
             if(frame==null){say("Screenshot unavailable");return;}
             try{
                 Match m=match(frame);
                 if(m==null){say(diagnosis(frame));return;}
-                say(m.brief()+(m.strong()?" - ready":" - uncertain"));
-                android.util.Log.d("LimbusAuto", "SCAN match GEAR="+m.gx+","+m.gy+
-                    " WIN="+m.wx+","+m.wy+" score="+m.brief());
+                say(m.brief());
                 if(marker!=null){
-                    marker.update(m.ws>=WIN_MIN?m.wx:-1,m.ws>=WIN_MIN?m.wy:-1,
-                        m.gs>=GEAR_MIN?m.gx:-1,m.gs>=GEAR_MIN?m.gy:-1);
+                    marker.update(m.valid()?m.wx:-1,m.valid()?m.wy:-1,
+                        m.valid()?m.gx:-1,m.valid()?m.gy:-1);
                     marker.setVisibility(View.VISIBLE);
-                    h.postDelayed(()->{if(!running && marker!=null)marker.setVisibility(View.GONE);},7000);
+                    h.postDelayed(()->{if(!running&&marker!=null)
+                        marker.setVisibility(View.GONE);},7000);
                 }
-            }catch(Exception e){say("Scanner error");}
+            }catch(Exception e){say("Scan failed");}
             finally{frame.recycle();}
         }),350);
     }
     private void begin(){
-        if(collapsed){say("Open controls first");return;}
-        if(!NativeVision.AVAILABLE){say("Rust unavailable");return;}
-        if(!gameForeground()){say("Open Limbus battle first");return;}
-        if(capturing){say("Screenshot busy");return;}
+        if(!NativeVision.AVAILABLE){say("Rust library not loaded");return;}
+        if(!gameForeground()){say("Open Limbus battle");return;}
+        if(capturing){say("Capture busy");return;}
         if(marker!=null)marker.setVisibility(View.GONE);
-        phase=PHASE_WIN;confirmed=0;taps=0;failures=0;lastX=-1;lastY=-1;
-        startTime=SystemClock.elapsedRealtime();lastTouch=0;running=true;
-        if(collapsed && dragTitle!=null)dragTitle.setText("DRAG RUN");
-        say("AUTO - finding WIN + GEAR");schedule(500);
+        running=true;phase=PHASE_WIN;confirmed=0;taps=0;failures=0;
+        lastX=-1;lastY=-1;waitingForIdle=false;
+        startTime=phaseSince=SystemClock.elapsedRealtime();
+        if(collapsed){dragTitle.setText("RUN");emergencyStop.setVisibility(View.VISIBLE);}
+        say("AUTO - looking for battle controls");schedule(500);
     }
     private final Runnable loop=()->{
         if(!running)return;
-        // Keep scanning and tapping even while the controls are collapsed.
-        if(SystemClock.elapsedRealtime()-startTime>MAX_DURATION||taps>=MAX_TAPS){stop("Safety limit");return;}
+        if(SystemClock.elapsedRealtime()-startTime>MAX_DURATION||taps>=MAX_TAPS){
+            stop("Safety limit");return;
+        }
         if(!gameForeground()){stop("Game not foreground");return;}
         if(marker!=null)marker.setVisibility(View.GONE);
         screenshot(frame->{
             if(frame==null){stop("Screenshot failed");return;}
             try{
                 Match m=match(frame);
-                if(m==null){stop(diagnosis(frame));return;}
+                if(m==null){failures++;if(failures>=12)stop(diagnosis(frame));
+                    else schedule(1700);
+                    return;
+                }
                 handle(m);
-            }catch(Exception e){stop("Vision exception");}
+            }catch(Exception e){stop("Detection failed");}
             finally{frame.recycle();}
         });
     };
     private void handle(Match m){
+        long now=SystemClock.elapsedRealtime();
+        if(m.state==UNKNOWN){
+            confirmed=0;failures++;
+            if(failures>=12){stop("Uncertain button state - "+m.brief());return;}
+            say("WAIT "+m.brief());schedule(1900);return;
+        }
+        // Never send another START gesture until the previous START state has disappeared.
+        if(waitingForIdle){
+            if(m.state==IDLE){waitingForIdle=false;phase=PHASE_WIN;phaseSince=now;}
+            else {
+                if(now-waitingSince>35000){stop("Still showing START");return;}
+                say("WAIT next turn");schedule(1800);return;
+            }
+        }
+        if(phase==PHASE_WIN && m.state==READY){
+            // Someone may have selected win rate manually before pressing AUTO.
+            phase=PHASE_FIRE;phaseSince=now;confirmed=0;lastX=-1;lastY=-1;
+        }
+        if(phase==PHASE_FIRE&&m.state==IDLE){
+            if(now-phaseSince>6500){stop("Win selection not confirmed");return;}
+            say("WAIT win selection");schedule(950);return;
+        }
+        if(phase==PHASE_WIN&&m.state!=IDLE || phase==PHASE_FIRE&&m.state!=READY){
+            stop("Unexpected state");return;
+        }
         float x=phase==PHASE_WIN?m.wx:m.gx;
         float y=phase==PHASE_WIN?m.wy:m.gy;
-        boolean confident=phase==PHASE_WIN?m.strong():
-            // A ready button may change appearance, but must preserve the validated pair layout.
-            m.layoutValid() && m.ws>=.62f && m.gs>=.52f &&
-            Math.abs(m.gx-rememberGearX)<=m.h*.042f &&
-            Math.abs(m.gy-rememberGearY)<=m.h*.042f;
-        // Only one slow, bounded action after two aligned screenshots.
-        if(!confident){
-            confirmed=0;lastX=-1;failures++;
-            if(failures>=15){stop("Icon not confidently matched - "+m.brief());return;}
-            say("SCAN "+m.brief()+" ("+failures+")");
-            schedule(2000);return;
-        }
+        if(x<0||y<0||x>=m.w||y>=m.h){stop("Out-of-range target");return;}
         failures=0;
-        if(lastX>=0&&Math.abs(lastX-x)<m.h*.012f&&Math.abs(lastY-y)<m.h*.012f)confirmed++;
+        if(lastX>=0&&Math.abs(lastX-x)<m.h*.012f&&
+           Math.abs(lastY-y)<m.h*.012f)confirmed++;
         else confirmed=1;
         lastX=x;lastY=y;
         if(confirmed<2){say("CHECK "+m.brief());schedule(900);return;}
         confirmed=0;lastX=-1;lastY=-1;
         if(!gameForeground()){stop("Game not foreground");return;}
-        if(phase==PHASE_WIN){
-            rememberGearX=m.gx;rememberGearY=m.gy;
-        }
         Path p=new Path();p.moveTo(x,y);
         GestureDescription g=new GestureDescription.Builder()
             .addStroke(new GestureDescription.StrokeDescription(p,0,110)).build();
-        final int phaseAtTouch=phase;
-        boolean accepted=dispatchGesture(g,new GestureResultCallback(){
+        final int clicked=phase;
+        if(!dispatchGesture(g,new GestureResultCallback(){
             @Override public void onCompleted(GestureDescription done){
                 if(!running)return;
                 taps++;lastTouch=SystemClock.elapsedRealtime();
-                phase=phaseAtTouch==PHASE_WIN?PHASE_FIRE:PHASE_WIN;
-                say((phaseAtTouch==PHASE_WIN?"WIN":"FIRE")+" tapped ("+taps+")");
-                schedule(phaseAtTouch==PHASE_WIN?1800:8500);
+                if(clicked==PHASE_WIN){
+                    phase=PHASE_FIRE;phaseSince=lastTouch;
+                }else{
+                    phase=PHASE_WIN;waitingForIdle=true;waitingSince=lastTouch;
+                }
+                say((clicked==PHASE_WIN?"WIN":"START")+" tapped "+taps);
+                schedule(clicked==PHASE_WIN?1550:8500);
             }
-            @Override public void onCancelled(GestureDescription done){stop("Touch cancelled");}
-        },h);
-        if(!accepted)stop("Touch rejected");
+            @Override public void onCancelled(GestureDescription done){stop("Gesture cancelled");}
+        },h))stop("Gesture rejected");
     }
 }

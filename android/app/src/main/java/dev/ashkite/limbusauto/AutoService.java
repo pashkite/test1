@@ -49,6 +49,7 @@ public final class AutoService extends AccessibilityService {
     private boolean game=false,running=false,capturing=false;
     private int phase=PHASE_WIN,confirmed=0,taps=0,failures=0;
     private boolean waitingForIdle=false;
+    private boolean scannedReady=false;
     private long waitingSince=0L,phaseSince=0L;
     private long startTime=0,lastTouch=0;
     private float lastX=-1,lastY=-1,rememberGearX=-1,rememberGearY=-1;
@@ -114,7 +115,7 @@ public final class AutoService extends AccessibilityService {
         LinearLayout header=new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         dragTitle=new TextView(this);
-        dragTitle.setText("DRAG  ·  LIMBUS AUTO 0.5");
+        dragTitle.setText("DRAG  ·  LIMBUS AUTO 0.5.1");
         dragTitle.setTextColor(Color.WHITE);dragTitle.setTextSize(14f);
         dragTitle.setPadding(dp(8),dp(6),dp(8),dp(6));
         dragTitle.setGravity(Gravity.CENTER_VERTICAL);
@@ -197,7 +198,7 @@ public final class AutoService extends AccessibilityService {
         // OPEN then STOP remains available at all times.
         status.setVisibility(collapsed?View.GONE:View.VISIBLE);
         actionButtons.setVisibility(collapsed?View.GONE:View.VISIBLE);
-        dragTitle.setText(collapsed?(running?"RUN":"DRAG"):"DRAG  ·  LIMBUS AUTO 0.5");
+        dragTitle.setText(collapsed?(running?"RUN":"DRAG"):"DRAG  ·  LIMBUS AUTO 0.5.1");
         emergencyStop.setVisibility(collapsed&&running?View.VISIBLE:View.GONE);
         dragTitle.setLayoutParams(collapsed
             ? new LinearLayout.LayoutParams(dp(72),dp(42))
@@ -258,7 +259,8 @@ public final class AutoService extends AccessibilityService {
         String brief(){
             String what=state==IDLE?"IDLE":state==READY?"READY":"UNCERTAIN";
             return what+" I"+Math.round(idleScore*100)+" R"+Math.round(readyScore*100)+
-                " O"+Math.round(orange*100);
+                " O"+Math.round(orange*100)+
+                " ("+Math.round(wx)+","+Math.round(wy)+")";
         }
     }
     private String diagnosis(Bitmap frame){
@@ -289,22 +291,26 @@ public final class AutoService extends AccessibilityService {
         m.wx=r[0]*w/sw;m.wy=r[1]*ht/240f;
         m.gx=r[2]*w/sw;m.gy=r[3]*ht/240f;
         m.idleScore=r[4];m.readyScore=r[5];m.orange=r[6];
-        if(m.orange<=.18f && m.idleScore>=.82f &&
-           m.idleScore>=m.readyScore-.06f)m.state=IDLE;
-        if(m.orange>=.52f && m.readyScore>=.82f &&
-           m.readyScore>=m.idleScore-.06f)m.state=READY;
+        // Pattern score varies with UI scaling. Gear color independently
+        // confirms whether the screen shows the highlighted START state.
+        if(m.orange<=.22f && m.idleScore>=.73f &&
+           m.idleScore>=m.readyScore-.07f)m.state=IDLE;
+        if(m.orange>=.48f && m.readyScore>=.73f &&
+           m.readyScore>=m.idleScore-.07f)m.state=READY;
         return m;
     }
     private void preview(){
         if(running){say("STOP before SCAN");return;}
         if(!gameForeground()){say("Open Limbus battle");return;}
+        scannedReady=false;
         if(marker!=null)marker.setVisibility(View.GONE);
         say("Scanning idle/selected...");
         h.postDelayed(()->screenshot(frame->{
             if(frame==null){say("Screenshot unavailable");return;}
             try{
                 Match m=match(frame);
-                if(m==null){say(diagnosis(frame));return;}
+                if(m==null){scannedReady=false;say(diagnosis(frame));return;}
+                scannedReady=m.valid();
                 say(m.brief());
                 if(marker!=null){
                     marker.update(m.valid()?m.wx:-1,m.valid()?m.wy:-1,
@@ -319,6 +325,7 @@ public final class AutoService extends AccessibilityService {
     }
     private void begin(){
         if(!NativeVision.AVAILABLE){say("Rust library not loaded");return;}
+        if(!scannedReady){say("SCAN first - check marker positions");return;}
         if(!gameForeground()){say("Open Limbus battle");return;}
         if(capturing){say("Capture busy");return;}
         if(marker!=null)marker.setVisibility(View.GONE);

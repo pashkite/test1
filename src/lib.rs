@@ -217,9 +217,13 @@ fn locate_panel_controls(pixels:&[u32],width:usize,height:usize,idle:&[i8],selec
     }).collect();
     let a=refined_panel(&gray,width,height,idle);
     let b=refined_panel(&gray,width,height,selected);
-    if a.1.abs_diff(b.1)>5||a.2.abs_diff(b.2)>5{return invalid;}
+    // Idle and selected panels are mutually exclusive; the inactive model may
+    // match an unrelated location. Use the stronger state alone for anchoring.
     let (x,y)=if b.0>a.0 {(b.1,b.2)}else{(a.1,a.2)};
-    if a.0.max(b.0)<0.70{return invalid;}
+    // Correlations at this single shared anchor remain inspectable even if weak.
+    // Android gates ALL gestures on score, state and orange-gear confirmation.
+    let aligned_idle=ncc(&gray,width,height,idle,PANEL_W,PANEL_H,x,y);
+    let aligned_selected=ncc(&gray,width,height,selected,PANEL_W,PANEL_H,x,y);
     // Relative gear location from two different screenshots with different UI widths.
     let gx=x as isize-41;let gy=y as isize+11;
     if gx<6||gy<6||gx+6>=width as isize||gy+6>=height as isize{return invalid;}
@@ -233,7 +237,7 @@ fn locate_panel_controls(pixels:&[u32],width:usize,height:usize,idle:&[i8],selec
             if r>205.0&&g>95.0&&g<236.0&&bl<155.0&&r>g*1.14{bright+=1;}
         }
     }
-    [x as f32+1.0,y as f32+7.0,gx as f32,gy as f32,a.0,b.0,bright as f32/121.0]
+    [x as f32+1.0,y as f32+7.0,gx as f32,gy as f32,aligned_idle,aligned_selected,bright as f32/121.0]
 }
 #[cfg(target_os="android")]
 #[no_mangle]
@@ -267,6 +271,23 @@ mod control_test {
     #[test]fn bad_size_is_rejected(){
         let src=vec![0xff000000u32;240*520];
         assert_eq!(locate_panel_controls(&src,520,240,&[],&[])[0],-1.0);
+    }
+    #[test]fn selected_and_idle_template_differ_at_other_places(){
+        let width=520usize;let height=240usize;
+        let mut pixels=vec![0xff101010u32;width*height];
+        let idle:Vec<i8>=(0..PANEL_W*PANEL_H)
+            .map(|i| ((i*31+(i/15)*17)%180+20) as u8 as i8).collect();
+        let selected:Vec<i8>=(0..PANEL_W*PANEL_H)
+            .map(|i| ((i*11+(i/15)*41)%160+30) as u8 as i8).collect();
+        for row in 0..PANEL_H {
+            for col in 0..PANEL_W {
+                let c=idle[row*PANEL_W+col] as u8 as u32;
+                pixels[(170+row)*width+400+col]=0xff000000|(c<<16)|(c<<8)|c;
+            }
+        }
+        let out=locate_panel_controls(&pixels,width,height,&idle,&selected);
+        assert_eq!(out[0],401.0);
+        assert!(out[4]>.99);
     }
     #[test]fn constant_frame_is_rejected(){
         let src=vec![0xff080808u32;240*520];

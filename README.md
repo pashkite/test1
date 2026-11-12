@@ -4,11 +4,11 @@
 
 ## Android usage
 
-1. Android 11+, arm64. Install the APK (package \`dev.ashkite.limbusauto.icons\`, separate from earlier versions).
+1. Android 11+, arm64. Install the APK (package `dev.ashkite.limbusauto.icons`, separate from earlier versions).
 2. Enable the Limbus Auto Accessibility Service, then open a regular Limbus battle.
-3. A **top-center** controller shows \`SCAN\`, \`AUTO\`, \`STOP\`.
-4. Tap \`SCAN\` first. It compares bottom-right pixels using Rust normalized cross-correlation and reports GEAR and WIN percentages. If scores exceed thresholds, markers identify detected buttons: **yellow circle for the start gear**, **green circle for Win Rate**.
-5. Only if both circles match the intended buttons, press \`AUTO\` to attempt selecting Win Rate followed by tapping the adjacent gear to start a combat turn. Supervise all trials; stop immediately if unexpected.
+3. A **top-center** controller shows `SCAN`, `AUTO`, `STOP`.
+4. Tap `SCAN` first. It compares bottom-right pixels using Rust normalized cross-correlation and reports GEAR and WIN percentages. If scores exceed thresholds, markers identify detected buttons: **yellow circle for the start gear**, **green circle for Win Rate**.
+5. Only if both circles match the intended buttons, press `AUTO` to attempt selecting Win Rate followed by tapping the adjacent gear to start a combat turn. Supervise all trials; stop immediately if unexpected.
 
 No game server/API calls, no modifying/injecting the game process, and no network permission. All screenshots are processed on device. Rust JNI performs pattern matching; Java AccessibilityService captures screenshots and sends touch gestures.
 
@@ -23,7 +23,7 @@ No game server/API calls, no modifying/injecting the game process, and no networ
 
 ## Building
 
-GitHub Actions -> \`Build Android APK and Windows\` -> last successful run -> artifact \`LimbusAutoRust-android-OCR-v0.3\` (the workflow artifact label is historical; verify APK package name \`dev.ashkite.limbusauto.icons\` and version \`0.4.0-icon-matcher\`).
+GitHub Actions -> `Build Android APK and Windows` -> last successful run -> artifact `LimbusAutoRust-android-icons-v0.4` (verify APK package name `dev.ashkite.limbusauto.icons` and version `0.4.0-icon-matcher`).
 
 The APK is debug-signed in CI. Since CI uses ephemeral signing keys, uninstall the older package if installation fails due to signature mismatch.
 

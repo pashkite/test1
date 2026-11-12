@@ -1,4 +1,4 @@
-# Limbus Auto Rust 0.4 — screenshot icon pairing prototype
+# Limbus Auto Rust 0.4.1 — screenshot icon pairing prototype
 
 **Experimental / unverified in actual gameplay.** This app uses the **one screenshot supplied by the user** to build a small pair of grayscale icon templates. The main action is no longer dependent on OCR extracting button text, which previously led to mistaps.
 
@@ -30,3 +30,10 @@ The APK is debug-signed in CI. Since CI uses ephemeral signing keys, uninstall t
 References:
 - Android Accessibility Service screenshot and gesture APIs: https://developer.android.com/reference/android/accessibilityservice/AccessibilityService
 - Rust JNI crate: https://docs.rs/jni/latest/jni/
+
+## v0.4.1 changes
+
+- Drag the **DRAG** header to any screen position; the position is remembered.
+- Press **HIDE** to collapse to a tiny movable `DRAG / OPEN` handle. Hiding also stops the automation. Press **OPEN** to restore controls. This allows story Skip buttons to be accessible.
+- Better error messages if screen capture is not landscape or JNI/templates are missing.
+- Icon patterns updated from the second 1536x709 screenshot of the user's device; the prototype still needs device verification.

@@ -14,6 +14,8 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.MotionEvent;
+import android.util.DisplayMetrics;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
@@ -36,6 +38,13 @@ public final class AutoService extends AccessibilityService {
     private LinearLayout overlay;
     private MarkerView marker;
     private TextView status;
+    private TextView dragTitle;
+    private Button collapseButton;
+    private LinearLayout actionButtons;
+    private WindowManager.LayoutParams panelParams;
+    private boolean collapsed=false;
+    private float downRawX,downRawY;
+    private int downPanelX,downPanelY;
     private boolean game=false,running=false,capturing=false;
     private int phase=PHASE_WIN,confirmed=0,taps=0,failures=0;
     private long startTime=0,lastTouch=0;
@@ -93,26 +102,94 @@ public final class AutoService extends AccessibilityService {
         overlay.setPadding(dp(8),dp(6),dp(8),dp(6));
         GradientDrawable bg=new GradientDrawable();bg.setColor(Color.argb(238,25,29,39));bg.setCornerRadius(dp(12));
         overlay.setBackground(bg);
-        TextView label=new TextView(this);label.setText("LIMBUS AUTO 0.4");
-        label.setGravity(Gravity.CENTER);label.setTextColor(Color.WHITE);label.setTextSize(14f);
-        overlay.addView(label);
+        // Drag handle plus a compact hide/open toggle. While collapsed the app never taps.
+        LinearLayout header=new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        dragTitle=new TextView(this);
+        dragTitle.setText("DRAG  ·  LIMBUS AUTO 0.4.1");
+        dragTitle.setTextColor(Color.WHITE);dragTitle.setTextSize(14f);
+        dragTitle.setPadding(dp(8),dp(6),dp(8),dp(6));
+        dragTitle.setGravity(Gravity.CENTER_VERTICAL);
+        dragTitle.setOnTouchListener((v,event)->{
+            switch(event.getActionMasked()){
+                case MotionEvent.ACTION_DOWN:
+                    downRawX=event.getRawX();downRawY=event.getRawY();
+                    downPanelX=panelParams.x;downPanelY=panelParams.y;
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    panelParams.x=downPanelX+Math.round(event.getRawX()-downRawX);
+                    panelParams.y=downPanelY+Math.round(event.getRawY()-downRawY);
+                    clampPanel();
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    rememberPanel();
+                    return true;
+                default:return false;
+            }
+        });
+        header.addView(dragTitle,new LinearLayout.LayoutParams(0,dp(42),1f));
+        collapseButton=new Button(this);
+        collapseButton.setAllCaps(false);collapseButton.setText("HIDE");
+        collapseButton.setTextSize(12f);collapseButton.setMinHeight(0);collapseButton.setMinWidth(0);
+        header.addView(collapseButton,new LinearLayout.LayoutParams(dp(72),dp(42)));
+        collapseButton.setOnClickListener(v->toggleCompact());
+        overlay.addView(header);
         status=new TextView(this);status.setText("READY - tap SCAN first");status.setTextSize(13);
         status.setTextColor(Color.WHITE);status.setGravity(Gravity.CENTER);status.setMaxLines(2);
         status.setPadding(dp(4),dp(4),dp(4),dp(4));overlay.addView(status);
-        LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setLayoutParams(new LinearLayout.LayoutParams(dp(335),LinearLayout.LayoutParams.WRAP_CONTENT));
-        actions.addView(button("SCAN",this::preview));
-        actions.addView(button("AUTO",this::begin));
-        actions.addView(button("STOP",()->stop("User stopped")));
-        overlay.addView(actions);
+        actionButtons=new LinearLayout(this);
+        actionButtons.setOrientation(LinearLayout.HORIZONTAL);
+        actionButtons.setLayoutParams(new LinearLayout.LayoutParams(dp(335),LinearLayout.LayoutParams.WRAP_CONTENT));
+        actionButtons.addView(button("SCAN",this::preview));
+        actionButtons.addView(button("AUTO",this::begin));
+        actionButtons.addView(button("STOP",()->stop("User stopped")));
+        overlay.addView(actionButtons);
         WindowManager.LayoutParams lp=new WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             android.graphics.PixelFormat.TRANSLUCENT);
-        lp.gravity=Gravity.TOP|Gravity.CENTER_HORIZONTAL;lp.y=dp(14);lp.x=0;
+        // Top-left gravity makes offsets stable while moving the control window.
+        lp.gravity=Gravity.TOP|Gravity.LEFT;
+        DisplayMetrics dm=getResources().getDisplayMetrics();
+        android.content.SharedPreferences prefs=getSharedPreferences("overlay_layout",MODE_PRIVATE);
+        lp.x=prefs.getInt("x",Math.max(0,(dm.widthPixels-dp(360))/2));
+        lp.y=prefs.getInt("y",dp(14));
+        panelParams=lp;
         wm.addView(overlay,lp);
+        overlay.post(this::clampPanel);
+        if(prefs.getBoolean("collapsed",false))toggleCompact();
     }
+
+    private void clampPanel(){
+        if(wm==null||overlay==null||panelParams==null)return;
+        DisplayMetrics dm=new DisplayMetrics();
+        wm.getDefaultDisplay().getRealMetrics(dm);
+        // A visible, movable tab must stay reachable even if screen dimensions change.
+        int width=overlay.getWidth()>0?overlay.getWidth():dp(collapsed?128:360);
+        int height=overlay.getHeight()>0?overlay.getHeight():dp(collapsed?52:158);
+        panelParams.x=Math.max(0,Math.min(panelParams.x,Math.max(0,dm.widthPixels-width)));
+        panelParams.y=Math.max(0,Math.min(panelParams.y,Math.max(0,dm.heightPixels-height)));
+        try{wm.updateViewLayout(overlay,panelParams);}catch(Exception ignored){}
+    }
+    private void rememberPanel(){
+        if(panelParams!=null)getSharedPreferences("overlay_layout",MODE_PRIVATE)
+            .edit().putInt("x",panelParams.x).putInt("y",panelParams.y).apply();
+    }
+    private void toggleCompact(){
+        collapsed=!collapsed;
+        if(collapsed)stop("Controls hidden / auto paused");
+        status.setVisibility(collapsed?View.GONE:View.VISIBLE);
+        actionButtons.setVisibility(collapsed?View.GONE:View.VISIBLE);
+        dragTitle.setText(collapsed?"DRAG":"DRAG  ·  LIMBUS AUTO 0.4.1");
+        collapseButton.setText(collapsed?"OPEN":"HIDE");
+        getSharedPreferences("overlay_layout",MODE_PRIVATE)
+            .edit().putBoolean("collapsed",collapsed).apply();
+        overlay.requestLayout();
+        overlay.post(()->{clampPanel();rememberPanel();});
+    }
+
     @Override public void onAccessibilityEvent(AccessibilityEvent e){
         if(e==null || e.getEventType()!=AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED||e.getPackageName()==null)return;
         String pkg=e.getPackageName().toString();
@@ -158,6 +235,16 @@ public final class AutoService extends AccessibilityService {
         boolean plausible(){return gs>=.55f&&ws>=.62f;}
         String brief(){return "GEAR "+Math.round(gs*100)+"% / WIN "+Math.round(ws*100)+"%";}
     }
+    private String diagnosis(Bitmap frame){
+        if(!NativeVision.AVAILABLE)return "Rust native library unavailable";
+        if(VisionTemplates.GEAR.length!=29*32)return "Gear template invalid";
+        if(VisionTemplates.WIN.length!=31*15)return "Win template invalid";
+        int w=frame.getWidth(),height=frame.getHeight();
+        if(w<=height*1.2f)return "Portrait capture "+w+"x"+height;
+        int scaledW=Math.round(w*240f/height);
+        if(scaledW<320||scaledW>1200)return "Unsupported ratio "+w+"x"+height;
+        return "Vision returned no coordinates ("+w+"x"+height+")";
+    }
     private Match match(Bitmap frame){
         if(!NativeVision.AVAILABLE||VisionTemplates.GEAR.length!=29*32||
             VisionTemplates.WIN.length!=31*15)return null;
@@ -176,6 +263,7 @@ public final class AutoService extends AccessibilityService {
         m.gs=result[4];m.ws=result[5];return m;
     }
     private void preview(){
+        if(collapsed){say("Open controls first");return;}
         if(running){say("STOP before SCAN");return;}
         if(!gameForeground()){say("Open Limbus battle first");return;}
         if(marker!=null)marker.setVisibility(View.GONE);
@@ -184,7 +272,7 @@ public final class AutoService extends AccessibilityService {
             if(frame==null){say("Screenshot unavailable");return;}
             try{
                 Match m=match(frame);
-                if(m==null){say("Unsupported screen format");return;}
+                if(m==null){say(diagnosis(frame));return;}
                 say(m.brief()+(m.strong()?" - ready":" - uncertain"));
                 if(marker!=null){
                     marker.update(m.ws>=WIN_MIN?m.wx:-1,m.ws>=WIN_MIN?m.wy:-1,
@@ -197,6 +285,7 @@ public final class AutoService extends AccessibilityService {
         }),350);
     }
     private void begin(){
+        if(collapsed){say("Open controls first");return;}
         if(!NativeVision.AVAILABLE){say("Rust unavailable");return;}
         if(!gameForeground()){say("Open Limbus battle first");return;}
         if(capturing){say("Screenshot busy");return;}
@@ -207,6 +296,7 @@ public final class AutoService extends AccessibilityService {
     }
     private final Runnable loop=()->{
         if(!running)return;
+        if(collapsed){stop("Hidden panel");return;}
         if(SystemClock.elapsedRealtime()-startTime>MAX_DURATION||taps>=MAX_TAPS){stop("Safety limit");return;}
         if(!gameForeground()){stop("Game not foreground");return;}
         if(marker!=null)marker.setVisibility(View.GONE);
@@ -214,7 +304,7 @@ public final class AutoService extends AccessibilityService {
             if(frame==null){stop("Screenshot failed");return;}
             try{
                 Match m=match(frame);
-                if(m==null){stop("Unsupported view");return;}
+                if(m==null){stop(diagnosis(frame));return;}
                 handle(m);
             }catch(Exception e){stop("Vision exception");}
             finally{frame.recycle();}

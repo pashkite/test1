@@ -131,11 +131,11 @@ fn locate_pair(frame:&[u32],width:usize,height:usize,gear:&[i8],win:&[i8])->[f32
     result[1]=refined.2 as f32+GEAR_H as f32/2.0;
     result[4]=refined.0;
     // Reference screenshot: win button is 29 normalized px to the right of gear, 1 px down.
-    let expected_x=refined.1+29;
-    let expected_y=refined.2+1;
+    let expected_x=refined.1+37;
+    let expected_y=refined.2+5;
     let mut best_win=(-2.0f32,0usize,0usize);
-    for y in expected_y.saturating_sub(8)..=(expected_y+8).min(height-WIN_H){
-        for x in expected_x.saturating_sub(8)..=(expected_x+8).min(width-WIN_W){
+    for y in expected_y.saturating_sub(12)..=(expected_y+12).min(height-WIN_H){
+        for x in expected_x.saturating_sub(12)..=(expected_x+12).min(width-WIN_W){
             let s=ncc(&img,width,height,win,WIN_W,WIN_H,x,y);
             if s>best_win.0{best_win=(s,x,y)}
         }

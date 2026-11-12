@@ -212,14 +212,14 @@ fn locate_panel_controls(pixels:&[u32],width:usize,height:usize,idle:&[i8],selec
     if height!=240||width<320||width>1200||pixels.len()!=width*height||
        idle.len()!=PANEL_W*PANEL_H||selected.len()!=PANEL_W*PANEL_H{return invalid;}
     let gray:Vec<f32>=pixels.iter().map(|c|{
-        (((c>>16)&255) as f32*.299+((c>>8)&255) as f32*.587+
-        (c&255) as f32*.114).round()
+        (((c>>16)&255) as f32*0.299+((c>>8)&255) as f32*0.587+
+        (c&255) as f32*0.114).round()
     }).collect();
     let a=refined_panel(&gray,width,height,idle);
     let b=refined_panel(&gray,width,height,selected);
     if a.1.abs_diff(b.1)>5||a.2.abs_diff(b.2)>5{return invalid;}
     let (x,y)=if b.0>a.0 {(b.1,b.2)}else{(a.1,a.2)};
-    if a.0.max(b.0)<.70{return invalid;}
+    if a.0.max(b.0)<0.70{return invalid;}
     // Relative gear location from two different screenshots with different UI widths.
     let gx=x as isize-41;let gy=y as isize+11;
     if gx<6||gy<6||gx+6>=width as isize||gy+6>=height as isize{return invalid;}

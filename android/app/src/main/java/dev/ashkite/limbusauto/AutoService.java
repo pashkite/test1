@@ -241,9 +241,20 @@ public final class AutoService extends AccessibilityService {
     private static final class Match{
         float gx,gy,wx,wy,gs,ws;
         int w,h;
-        boolean strong(){return gs>=GEAR_MIN&&ws>=WIN_MIN;}
-        boolean plausible(){return gs>=.55f&&ws>=.62f;}
-        String brief(){return "GEAR "+Math.round(gs*100)+"% / WIN "+Math.round(ws*100)+"%";}
+        boolean layoutValid(){
+            // Pair of bottom-right controls must be separated like the real combat UI,
+            // not merely be two visually similar textures elsewhere on the screen.
+            float gap=wx-gx;
+            return w>h*1.2f &&
+                gx>w*.57f && gx<w*.84f &&
+                gy>h*.61f && gy<h*.87f &&
+                gap>w*.055f && gap<w*.11f &&
+                Math.abs(wy-gy)<h*.048f;
+        }
+        boolean strong(){return layoutValid()&&gs>=GEAR_MIN&&ws>=WIN_MIN;}
+        boolean plausible(){return layoutValid()&&gs>=.55f&&ws>=.62f;}
+        String brief(){return "GEAR "+Math.round(gs*100)+"% / WIN "+Math.round(ws*100)+"%"+
+            (layoutValid()?"":" - layout mismatch");}
     }
     private String diagnosis(Bitmap frame){
         if(!NativeVision.AVAILABLE)return "Rust native library unavailable";
@@ -327,8 +338,8 @@ public final class AutoService extends AccessibilityService {
         float x=phase==PHASE_WIN?m.wx:m.gx;
         float y=phase==PHASE_WIN?m.wy:m.gy;
         boolean confident=phase==PHASE_WIN?m.strong():
-            // A ready button may change its appearance, but must remain next to Win Rate.
-            m.ws>=.62f && m.gs>=.52f &&
+            // A ready button may change appearance, but must preserve the validated pair layout.
+            m.layoutValid() && m.ws>=.62f && m.gs>=.52f &&
             Math.abs(m.gx-rememberGearX)<=m.h*.042f &&
             Math.abs(m.gy-rememberGearY)<=m.h*.042f;
         // Only one slow, bounded action after two aligned screenshots.

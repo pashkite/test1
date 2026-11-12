@@ -21,7 +21,7 @@ public final class MainActivity extends Activity {
         super.onCreate(b);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20),dp(15),dp(20),dp(15));
-        root.addView(text("Limbus Auto Rust 0.4.1",23));
+        root.addView(text("Limbus Auto Rust 0.4.2",23));
         root.addView(text("실험용 아이콘 인식 버전 / Android 11 이상 / ARM64 / PC 연결 불필요",15));
         Button enable=new Button(this);enable.setText("1. 접근성 서비스 설정");
         enable.setOnClickListener(v->new AlertDialog.Builder(this)
@@ -36,9 +36,9 @@ public final class MainActivity extends Activity {
             if(game!=null)startActivity(game);
             else new AlertDialog.Builder(this).setMessage("림버스 앱을 직접 실행해 주세요.").setPositiveButton("확인",null).show();
         });root.addView(launch);
-        root.addView(text("3. 일반 전투 화면에서 상단 DRAG 표시를 끌어 조작창을 이동할 수 있습니다. HIDE를 누르면 작은 DRAG/OPEN 손잡이만 남고 자동 터치는 정지합니다. OPEN으로 복원합니다.\n4. 전투 중에는 SCAN / AUTO / STOP을 사용합니다.\n"+
+        root.addView(text("3. 일반 전투 화면에서 상단 DRAG 표시를 끌어 조작창을 이동할 수 있습니다. HIDE를 누르면 작은 DRAG/OPEN 손잡이만 남지만 실행 중인 AUTO는 유지됩니다. 중지할 때는 OPEN 후 STOP을 누릅니다. OPEN으로 복원합니다.\n4. 전투 중에는 SCAN / AUTO / STOP을 사용합니다.\n"+
             "5. SCAN으로 먼저 초록색(승률)과 노란색(전투 시작) 표시가 실제 버튼 위에 있는지 확인하세요.\n"+
-            "6. 둘 다 정확하게 표시될 때만 AUTO를 시험하세요. 정확하지 않거나 인식률이 낮으면 STOP을 누르세요.\n\n"+
+            "6. 두 원이 실제 버튼 위에 나타날 때만 AUTO를 시험하세요. 원 위치가 어긋나면 AUTO를 사용하지 마세요. 정확하지 않거나 인식률이 낮으면 STOP을 누르세요.\n\n"+
             "사진 한 장으로 만든 패턴 시험판이라 기기 화면·UI 버전에 따라 인식 실패가 가능합니다. "+
             "보스전, 스테이지 내부 이동, 던전 경로·보상 자동화는 지원하지 않습니다.\n"+
             "수정 전과 마찬가지로 실제 게임 플레이 성공은 검증되지 않았습니다.",15));

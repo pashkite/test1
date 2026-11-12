@@ -9,6 +9,7 @@ public final class NativeVision {
         AVAILABLE=ok;
     }
     private NativeVision() {}
-    /** Rust implementation; left and right must have same dimensions. */
+    /** Maps OCR text to known game actions: 0=unknown, 1=win rate, 2=start, 3=clear. */
+    public static native int classify(String text);
     public static native float similarity(int[] left, int[] right);
 }

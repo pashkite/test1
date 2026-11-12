@@ -1,9 +1,0 @@
-target/
-**/build/
-**/.gradle/
-android/local.properties
-android/app/src/main/jniLibs/
-templates/
-config.tsv
-*.apk
-*.exe

@@ -81,10 +81,15 @@ public final class AutoService extends AccessibilityService {
         void update(float wx,float wy,float gx,float gy){xWin=wx;yWin=wy;xGear=gx;yGear=gy;invalidate();}
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
+            // Screenshot/JNI coordinates are display-global, while this canvas is
+            // local to an accessibility overlay and may have a display-cutout inset.
+            // Correct for the actual window origin; do not alter gesture coordinates.
+            int[] origin=new int[2];
+            getLocationOnScreen(origin);
             Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
             p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(3));
-            if(xWin>=0){p.setColor(Color.GREEN);canvas.drawCircle(xWin,yWin,dp(18),p);}
-            if(xGear>=0){p.setColor(Color.YELLOW);canvas.drawCircle(xGear,yGear,dp(22),p);}
+            if(xWin>=0){p.setColor(Color.GREEN);canvas.drawCircle(xWin-origin[0],yWin-origin[1],dp(18),p);}
+            if(xGear>=0){p.setColor(Color.YELLOW);canvas.drawCircle(xGear-origin[0],yGear-origin[1],dp(22),p);}
         }
     }
     @Override protected void onServiceConnected(){
@@ -102,11 +107,11 @@ public final class AutoService extends AccessibilityService {
         overlay.setPadding(dp(8),dp(6),dp(8),dp(6));
         GradientDrawable bg=new GradientDrawable();bg.setColor(Color.argb(238,25,29,39));bg.setCornerRadius(dp(12));
         overlay.setBackground(bg);
-        // Drag handle plus a compact hide/open toggle. While collapsed the app never taps.
+        // The title can be dragged and the controls can be collapsed without stopping a run.
         LinearLayout header=new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         dragTitle=new TextView(this);
-        dragTitle.setText("DRAG  ·  LIMBUS AUTO 0.4.1");
+        dragTitle.setText("DRAG  ·  LIMBUS AUTO 0.4.2");
         dragTitle.setTextColor(Color.WHITE);dragTitle.setTextSize(14f);
         dragTitle.setPadding(dp(8),dp(6),dp(8),dp(6));
         dragTitle.setGravity(Gravity.CENTER_VERTICAL);
@@ -179,10 +184,11 @@ public final class AutoService extends AccessibilityService {
     }
     private void toggleCompact(){
         collapsed=!collapsed;
-        if(collapsed)stop("Controls hidden / auto paused");
+        // A collapsed panel is only a visual state. The automation loop keeps running.
+        // OPEN then STOP remains available at all times.
         status.setVisibility(collapsed?View.GONE:View.VISIBLE);
         actionButtons.setVisibility(collapsed?View.GONE:View.VISIBLE);
-        dragTitle.setText(collapsed?"DRAG":"DRAG  ·  LIMBUS AUTO 0.4.1");
+        dragTitle.setText(collapsed?(running?"DRAG RUN":"DRAG"):"DRAG  ·  LIMBUS AUTO 0.4.2");
         dragTitle.setLayoutParams(collapsed
             ? new LinearLayout.LayoutParams(dp(72),dp(42))
             : new LinearLayout.LayoutParams(0,dp(42),1f));
@@ -210,6 +216,7 @@ public final class AutoService extends AccessibilityService {
     }
     private void stop(String reason){
         running=false;h.removeCallbacks(loop);confirmed=0;lastX=-1;lastY=-1;
+        if(collapsed && dragTitle!=null)dragTitle.setText("DRAG STOP");
         if(marker!=null)marker.setVisibility(View.GONE);
         say("STOP - "+reason);
     }
@@ -277,6 +284,8 @@ public final class AutoService extends AccessibilityService {
                 Match m=match(frame);
                 if(m==null){say(diagnosis(frame));return;}
                 say(m.brief()+(m.strong()?" - ready":" - uncertain"));
+                android.util.Log.d("LimbusAuto", "SCAN match GEAR="+m.gx+","+m.gy+
+                    " WIN="+m.wx+","+m.wy+" score="+m.brief());
                 if(marker!=null){
                     marker.update(m.ws>=WIN_MIN?m.wx:-1,m.ws>=WIN_MIN?m.wy:-1,
                         m.gs>=GEAR_MIN?m.gx:-1,m.gs>=GEAR_MIN?m.gy:-1);
@@ -295,11 +304,12 @@ public final class AutoService extends AccessibilityService {
         if(marker!=null)marker.setVisibility(View.GONE);
         phase=PHASE_WIN;confirmed=0;taps=0;failures=0;lastX=-1;lastY=-1;
         startTime=SystemClock.elapsedRealtime();lastTouch=0;running=true;
+        if(collapsed && dragTitle!=null)dragTitle.setText("DRAG RUN");
         say("AUTO - finding WIN + GEAR");schedule(500);
     }
     private final Runnable loop=()->{
         if(!running)return;
-        if(collapsed){stop("Hidden panel");return;}
+        // Keep scanning and tapping even while the controls are collapsed.
         if(SystemClock.elapsedRealtime()-startTime>MAX_DURATION||taps>=MAX_TAPS){stop("Safety limit");return;}
         if(!gameForeground()){stop("Game not foreground");return;}
         if(marker!=null)marker.setVisibility(View.GONE);

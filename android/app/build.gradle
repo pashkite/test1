@@ -3,22 +3,15 @@ android {
     namespace 'dev.ashkite.limbusauto'
     compileSdk 35
     defaultConfig {
-        // Separate application ID because previous experimental APK has a different debug signing key.
-        applicationId 'dev.ashkite.limbusauto.ocr'
+        applicationId 'dev.ashkite.limbusauto.icons'
         minSdk 30
         targetSdk 35
-        versionCode 5
-        versionName '0.3.2-ocr-ui-fix'
+        versionCode 6
+        versionName '0.4.0-icon-matcher'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
 }
-dependencies {
-    // Bundled/offline Korean and Latin OCR: no model download required after installing APK.
-    implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
-    implementation 'com.google.mlkit:text-recognition:16.0.1'
-}
-
-tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.withType(JavaCompile).configureEach { options.encoding='UTF-8' }

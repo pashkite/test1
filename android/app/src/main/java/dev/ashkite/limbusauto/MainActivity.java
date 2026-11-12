@@ -10,45 +10,39 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.view.View;
 
 public final class MainActivity extends Activity {
-    private int dp(int x) { return (int)(x*getResources().getDisplayMetrics().density+.5f); }
-    private TextView text(String s,int size) {
-        TextView t=new TextView(this); t.setText(s); t.setTextSize(size);t.setTextColor(Color.DKGRAY);t.setPadding(0,dp(9),0,dp(9));return t;
+    private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
+    private TextView text(String s,int size){
+        TextView t=new TextView(this);t.setText(s);t.setTextSize(size);
+        t.setTextColor(Color.DKGRAY);t.setPadding(0,dp(8),0,dp(8));return t;
     }
-    private void button(LinearLayout root,String label,View.OnClickListener handler){
-        Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setOnClickListener(handler);root.addView(b);
-    }
-    @Override public void onCreate(Bundle saved){
-        super.onCreate(saved);
-        ScrollView scroll=new ScrollView(this);
-        LinearLayout root=new LinearLayout(this);root.setPadding(dp(22),dp(20),dp(22),dp(20));root.setOrientation(LinearLayout.VERTICAL);
-        root.addView(text("Limbus Auto OCR · v0.3.2",24));
-        root.addView(text("PC 연결 없이 작동하는 Android 11+ ARM64 실험 앱.\n\n"+
-            "버튼 위치를 등록할 필요 없이 한국어·영어 글자를 자동 탐색합니다. "+
-            "Rust는 글자 분류를, ML Kit는 기기 내부 글자 인식을 담당합니다. "+
-            "화면은 서버에 전송하지 않습니다.",15));
-        button(root,"1. 접근성 기능 활성화",v->new AlertDialog.Builder(this)
-            .setTitle("권한 및 주의사항").setMessage(
-                "화면 캡처와 일반 터치 권한을 사용하는 실험용 앱입니다. "+
-                "실제 게임에서 검증되지 않았습니다. 게임 운영 정책상 계정 제재 위험이 있습니다. "+
-                "원치 않으면 접근성 서비스를 허용하지 마세요.")
+    @Override public void onCreate(Bundle b){
+        super.onCreate(b);
+        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20),dp(15),dp(20),dp(15));
+        root.addView(text("Limbus Auto Rust 0.4",23));
+        root.addView(text("실험용 아이콘 인식 버전 / Android 11 이상 / ARM64 / PC 연결 불필요",15));
+        Button enable=new Button(this);enable.setText("1. 접근성 서비스 설정");
+        enable.setOnClickListener(v->new AlertDialog.Builder(this)
+            .setTitle("접근성 권한")
+            .setMessage("게임 화면을 캡처하고 일반 터치를 자동 실행합니다. 안전과 계정 제재 위험을 이해한 경우에만 활성화하세요. 게임 서버 통신이나 메모리 변경 기능은 없습니다.")
             .setNegativeButton("취소",null)
             .setPositiveButton("설정 열기",(dialog,which)->startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))).show());
-        button(root,"2. 림버스 실행",v->{
-            Intent launch=getPackageManager().getLaunchIntentForPackage("com.ProjectMoon.LimbusCompany");
-            if(launch!=null)startActivity(launch);
-            else new AlertDialog.Builder(this).setMessage("림버스 앱을 찾지 못했어. 게임을 직접 실행해 줘.").setPositiveButton("확인",null).show();
-        });
-        root.addView(text("3. 화면 중앙 상단에 컨트롤러가 보이면 접근성 서비스가 실행 중입니다.\n게임 감지에 실패해도 버튼은 계속 표시됩니다.\n4. 게임에서 일반 전투 화면으로 이동합니다.\n"+
-            "5. 컨트롤러 상태가 'READY - GAME FOUND'이면 ‘AUTO ON’을 누릅니다. ‘STOP’은 중지입니다.\n"+
-            "6. 글자 인식이 2회 일치하면 ‘승률’→‘START/전투 시작’을 터치합니다.\n"+
-            "7. 앱이 버튼을 찾지 못하거나 예상하지 못한 화면에 도달하면 자동으로 멈춥니다.\n\n"+
-            "현재 제외: 스테이지 내부 이동·보상 선택·거울 던전·보스 기믹. "+
-            "전투 시작이 글자 없는 아이콘인 경우 인식하지 못할 수 있습니다.\n\n"+
-            "화면 인식과 터치 위치는 아직 실제 게임에서 검증되지 않았습니다. 반드시 지켜보며 시험하고, 문제가 있으면 즉시 'STOP'을 누르세요.",15));
-        root.addView(text("Rust 엔진: "+(NativeVision.AVAILABLE?"정상 로드":"로드 실패"),15));
-        scroll.addView(root);setContentView(scroll);
+        root.addView(enable);
+        Button launch=new Button(this);launch.setText("2. 림버스 실행");
+        launch.setOnClickListener(v->{
+            Intent game=getPackageManager().getLaunchIntentForPackage("com.ProjectMoon.LimbusCompany");
+            if(game!=null)startActivity(game);
+            else new AlertDialog.Builder(this).setMessage("림버스 앱을 직접 실행해 주세요.").setPositiveButton("확인",null).show();
+        });root.addView(launch);
+        root.addView(text("3. 일반 전투 화면을 띄우면 중앙 상단 조작창에 SCAN / AUTO / STOP 버튼이 나타납니다.\n"+
+            "4. SCAN으로 먼저 초록색(승률)과 노란색(전투 시작) 표시가 실제 버튼 위에 있는지 확인하세요.\n"+
+            "5. 둘 다 정확하게 표시될 때만 AUTO를 시험하세요. 정확하지 않거나 인식률이 낮으면 STOP을 누르세요.\n\n"+
+            "사진 한 장으로 만든 패턴 시험판이라 기기 화면·UI 버전에 따라 인식 실패가 가능합니다. "+
+            "보스전, 스테이지 내부 이동, 던전 경로·보상 자동화는 지원하지 않습니다.\n"+
+            "수정 전과 마찬가지로 실제 게임 플레이 성공은 검증되지 않았습니다.",15));
+        root.addView(text("Rust 라이브러리: "+(NativeVision.AVAILABLE?"정상":"로드 실패"),14));
+        ScrollView scroll=new ScrollView(this);scroll.addView(root);setContentView(scroll);
     }
 }

@@ -3,10 +3,10 @@ package dev.ashkite.limbusauto;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.Typeface;
-import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.HardwareBuffer;
 import android.os.Handler;
@@ -21,304 +21,244 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import com.google.android.gms.tasks.Task;
-import com.google.android.gms.tasks.Tasks;
-import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.text.Text;
-import com.google.mlkit.vision.text.TextRecognition;
-import com.google.mlkit.vision.text.TextRecognizer;
-import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions;
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
-import java.util.ArrayList;
-import java.util.List;
-
 /**
- * Experimental OCR-driven battle stepper. No screen coordinates are pre-registered.
- * Fails closed on unrecognized/missing text and on focus loss.
+ * Screenshot template matching -> preview markers -> normal touch gestures.
+ * Only attempts regular battles. No hard-coded screen coordinates or network access.
  */
 public final class AutoService extends AccessibilityService {
     private static final String GAME="com.ProjectMoon.LimbusCompany";
-    private static final long MAX_MILLIS=15*60_000L;
+    private static final long MAX_DURATION=15*60_000L;
     private static final int MAX_TAPS=40;
-    private static final int PHASE_WIN=1, PHASE_START=2;
+    private static final float GEAR_MIN=.75f, WIN_MIN=.72f;
+    private static final int PHASE_WIN=0, PHASE_FIRE=1;
     private final Handler h=new Handler(Looper.getMainLooper());
     private WindowManager wm;
     private LinearLayout overlay;
+    private MarkerView marker;
     private TextView status;
-    private TextView heading;
-    private static final String UI_READY="READY - open Limbus battle";
-    private int dp(float value){return (int)(value*getResources().getDisplayMetrics().density+0.5f);}
-    private TextRecognizer korean, latin;
-    private boolean gameVisible=false, running=false, captureBusy=false, recognizeBusy=false;
-    private int phase=PHASE_WIN, taps=0, miss=0, steady=0, clearSteady=0;
-    private long begun=0, stateSince=0;
-    private Rect previousBox=null;
-    private String lastForeground="대기 중";
-    private long lastGameEvent=0L;
-    private boolean isSystemPackage(String pkg) {
-        return pkg.equals("android") || pkg.equals("com.android.systemui")
-            || pkg.startsWith("com.google.android.inputmethod")
-            || pkg.startsWith("com.samsung.android.honeyboard");
-    }
-    private String activeRootPackage() {
-        try {
-            android.view.accessibility.AccessibilityNodeInfo root=getRootInActiveWindow();
-            if(root==null || root.getPackageName()==null) return null;
-            return root.getPackageName().toString();
-        } catch(Exception e){ return null; }
-    }
-    // A system dialog, game overlay, or IME is not proof that Limbus left the foreground.
-    private boolean verifyGame() {
-        String root=activeRootPackage();
-        if(GAME.equals(root)) {
-            gameVisible=true;
-            lastGameEvent=SystemClock.elapsedRealtime();
-            lastForeground=GAME;
-            return true;
-        }
-        if(root!=null && !getPackageName().equals(root) && !isSystemPackage(root)) {
-            gameVisible=false;
-            lastForeground=root;
-            return false;
-        }
-        return gameVisible;
-    }
+    private boolean game=false,running=false,capturing=false;
+    private int phase=PHASE_WIN,confirmed=0,taps=0,failures=0;
+    private long startTime=0,lastTouch=0;
+    private float lastX=-1,lastY=-1,rememberGearX=-1,rememberGearY=-1;
+    private int lastFrameWidth=0,lastFrameHeight=0;
+    private float lastGearScore=0,lastWinScore=0;
 
-    private static final class Candidate {
-        final int type;
-        final Rect box;
-        final String label;
-        Candidate(int type, Rect box, String label) {this.type=type;this.box=new Rect(box);this.label=label;}
+    private int dp(int v){return (int)(v*getResources().getDisplayMetrics().density+0.5f);}
+    private void say(String s){if(status!=null)status.setText(s);}
+    private void schedule(long ms){h.removeCallbacks(loop);if(running)h.postDelayed(loop,ms);}
+    private String gameRoot(){
+        try{android.view.accessibility.AccessibilityNodeInfo root=getRootInActiveWindow();
+            return root==null||root.getPackageName()==null?"":root.getPackageName().toString();}
+        catch(Exception e){return "";}
     }
-    private void post(String message) { if(status!=null)status.setText(message); }
-    private void next(long millis) { h.removeCallbacks(loop);if(running)h.postDelayed(loop,millis); }
-    private final Runnable loop=()->{
-        if(!running)return;
-        if(!verifyGame()){stop("Game not detected");return;}
-        if(taps>=MAX_TAPS||SystemClock.elapsedRealtime()-begun>=MAX_MILLIS){stop("Safety limit");return;}
-        // Overlay stays visible; OCR candidates for battle controls must be in lower half.
-        // This avoids an apparent missing-button problem while scanning.
-        h.postDelayed(()->screenshot(frame->{
-            if(!running){if(frame!=null)frame.recycle();return;}
-            if(frame==null){stop("Screenshot unavailable");return;}
-            recognize(frame);
-        }),250);
-    };
-    private interface FrameCallback { void accept(Bitmap frame); }
-    private Button button(String title, Runnable click) {
-        Button b=new Button(this);
-        b.setText(title);
-        b.setAllCaps(false);
-        b.setTextSize(15f);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        b.setTextColor(Color.BLACK);
-        b.setSingleLine(true);
-        b.setMinimumWidth(dp(104));
-        b.setMinWidth(dp(104));
-        b.setMinHeight(dp(44));
-        b.setMinimumHeight(dp(44));
-        b.setPadding(dp(12),dp(5),dp(12),dp(5));
+    private boolean gameForeground(){
+        String pkg=gameRoot();
+        if(GAME.equals(pkg)){game=true;return true;}
+        if(!pkg.isEmpty() && !pkg.equals(getPackageName()) &&
+           !pkg.equals("android") && !pkg.equals("com.android.systemui"))game=false;
+        return game;
+    }
+    private Button button(String label,Runnable action){
+        Button b=new Button(this);b.setText(label);b.setAllCaps(false);
+        b.setTextSize(15);b.setSingleLine(true);b.setMinWidth(dp(85));b.setMinHeight(dp(45));
+        b.setPadding(dp(8),0,dp(8),0);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(48),1f);
-        lp.setMargins(dp(4),dp(4),dp(4),dp(4));
-        b.setLayoutParams(lp);
-        b.setOnClickListener(v->click.run());
-        return b;
+        lp.setMargins(dp(3),dp(2),dp(3),dp(2));b.setLayoutParams(lp);
+        b.setOnClickListener(v->action.run());return b;
+    }
+    private final class MarkerView extends View {
+        private float xWin=-1,yWin=-1,xGear=-1,yGear=-1;
+        MarkerView(){super(AutoService.this);setBackgroundColor(Color.TRANSPARENT);}
+        void update(float wx,float wy,float gx,float gy){xWin=wx;yWin=wy;xGear=gx;yGear=gy;invalidate();}
+        @Override protected void onDraw(Canvas canvas){
+            super.onDraw(canvas);
+            Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(3));
+            if(xWin>=0){p.setColor(Color.GREEN);canvas.drawCircle(xWin,yWin,dp(18),p);}
+            if(xGear>=0){p.setColor(Color.YELLOW);canvas.drawCircle(xGear,yGear,dp(22),p);}
+        }
     }
     @Override protected void onServiceConnected(){
         super.onServiceConnected();
-        korean=TextRecognition.getClient(new KoreanTextRecognizerOptions.Builder().build());
-        latin=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         wm=(WindowManager)getSystemService(WINDOW_SERVICE);
-        overlay=new LinearLayout(this);
-        overlay.setOrientation(LinearLayout.VERTICAL);
-        overlay.setPadding(dp(10),dp(6),dp(10),dp(6));
-        GradientDrawable bg=new GradientDrawable();
-        bg.setColor(Color.argb(242,24,30,38));
-        bg.setCornerRadius(dp(14));
+        marker=new MarkerView();
+        WindowManager.LayoutParams marks=new WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE|WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            android.graphics.PixelFormat.TRANSLUCENT);
+        marks.gravity=Gravity.TOP|Gravity.LEFT;wm.addView(marker,marks);marker.setVisibility(View.GONE);
+        overlay=new LinearLayout(this);overlay.setOrientation(LinearLayout.VERTICAL);
+        overlay.setPadding(dp(8),dp(6),dp(8),dp(6));
+        GradientDrawable bg=new GradientDrawable();bg.setColor(Color.argb(238,25,29,39));bg.setCornerRadius(dp(12));
         overlay.setBackground(bg);
-        heading=new TextView(this);
-        heading.setText("LIMBUS AUTO");
-        heading.setTextColor(Color.WHITE);
-        heading.setTypeface(Typeface.DEFAULT_BOLD);
-        heading.setTextSize(14f);
-        heading.setGravity(Gravity.CENTER);
-        overlay.addView(heading);
-        status=new TextView(this);
-        status.setTextColor(Color.WHITE);
-        status.setTextSize(13f);
-        status.setTypeface(Typeface.DEFAULT);
-        status.setGravity(Gravity.CENTER);
-        status.setMaxLines(2);
-        status.setText(UI_READY);
-        status.setPadding(dp(8),dp(5),dp(8),dp(5));
-        overlay.addView(status);
-        LinearLayout buttons=new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.setGravity(Gravity.CENTER_HORIZONTAL);
-        // Fix a real width so weighted buttons cannot collapse in WRAP_CONTENT overlay.
-        buttons.setLayoutParams(new LinearLayout.LayoutParams(dp(290),LinearLayout.LayoutParams.WRAP_CONTENT));
-        buttons.addView(button("AUTO ON",this::begin));
-        buttons.addView(button("STOP",()->stop("User stopped")));
-        overlay.addView(buttons);
+        TextView label=new TextView(this);label.setText("LIMBUS AUTO 0.4");
+        label.setGravity(Gravity.CENTER);label.setTextColor(Color.WHITE);label.setTextSize(14f);
+        overlay.addView(label);
+        status=new TextView(this);status.setText("READY - tap SCAN first");status.setTextSize(13);
+        status.setTextColor(Color.WHITE);status.setGravity(Gravity.CENTER);status.setMaxLines(2);
+        status.setPadding(dp(4),dp(4),dp(4),dp(4));overlay.addView(status);
+        LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setLayoutParams(new LinearLayout.LayoutParams(dp(335),LinearLayout.LayoutParams.WRAP_CONTENT));
+        actions.addView(button("SCAN",this::preview));
+        actions.addView(button("AUTO",this::begin));
+        actions.addView(button("STOP",()->stop("User stopped")));
+        overlay.addView(actions);
         WindowManager.LayoutParams lp=new WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             android.graphics.PixelFormat.TRANSLUCENT);
-        lp.gravity=Gravity.TOP|Gravity.CENTER_HORIZONTAL;
-        lp.x=0;lp.y=dp(18);
-        wm.addView(overlay,lp);overlay.setVisibility(View.VISIBLE);
-        try{
-            if(getRootInActiveWindow()!=null&&getRootInActiveWindow().getPackageName()!=null){
-                gameVisible=GAME.contentEquals(getRootInActiveWindow().getPackageName());
-                if(gameVisible) lastGameEvent=SystemClock.elapsedRealtime();
-                post(gameVisible?"READY - GAME FOUND":UI_READY);
-            }
-        }catch(Exception ignored){}
+        lp.gravity=Gravity.TOP|Gravity.CENTER_HORIZONTAL;lp.y=dp(14);lp.x=0;
+        wm.addView(overlay,lp);
     }
-    @Override public void onAccessibilityEvent(AccessibilityEvent event){
-        if(event==null||event.getEventType()!=AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED||event.getPackageName()==null)return;
-        String pkg=event.getPackageName().toString();
-        if(pkg.equals(getPackageName()))return;
-        if(GAME.equals(pkg)){
-            gameVisible=true;lastGameEvent=SystemClock.elapsedRealtime();lastForeground=pkg;
-            if(!running)post("READY - GAME FOUND");
-            return;
-        }
-        // Only an actual non-system foreground app should invalidate the game state.
-        // Never hide the control window on a mere window-state event.
-        if(isSystemPackage(pkg))return;
-        if(!verifyGame()){
-            lastForeground=pkg;
-            if(running)stop("Game left foreground");
-            else post(UI_READY);
+    @Override public void onAccessibilityEvent(AccessibilityEvent e){
+        if(e==null || e.getEventType()!=AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED||e.getPackageName()==null)return;
+        String pkg=e.getPackageName().toString();
+        if(GAME.equals(pkg))game=true;
+        else if(!pkg.equals(getPackageName())&&!pkg.equals("android")&&!pkg.equals("com.android.systemui")){
+            if(!gameForeground()&&running)stop("Game changed");
         }
     }
-    @Override public void onInterrupt(){stop("서비스 중단");}
+    @Override public void onInterrupt(){stop("Accessibility interrupted");}
     @Override public void onDestroy(){
-        stop("서비스 종료");
-        if(overlay!=null&&wm!=null)try{wm.removeView(overlay);}catch(Exception ignored){}
-        if(korean!=null)korean.close();if(latin!=null)latin.close();
+        stop("Service closed");
+        if(marker!=null)try{wm.removeView(marker);}catch(Exception ignored){}
+        if(overlay!=null)try{wm.removeView(overlay);}catch(Exception ignored){}
         super.onDestroy();
     }
     private void stop(String reason){
-        running=false;h.removeCallbacks(loop);previousBox=null;steady=0;clearSteady=0;
-        post("정지: "+reason);
+        running=false;h.removeCallbacks(loop);confirmed=0;lastX=-1;lastY=-1;
+        if(marker!=null)marker.setVisibility(View.GONE);
+        say("STOP - "+reason);
     }
-    private void begin(){
-        if(!NativeVision.AVAILABLE){post("ERROR - Rust unavailable");return;}
-        if(!verifyGame()){
-            post("WAIT - game not detected");return;
-        }
-        if(captureBusy||recognizeBusy){post("WAIT - screen busy");return;}
-        phase=PHASE_WIN;taps=0;miss=0;steady=0;clearSteady=0;previousBox=null;
-        begun=stateSince=SystemClock.elapsedRealtime();running=true;
-        post("SCAN - win rate");next(500);
-    }
+    private interface FrameCallback{void got(Bitmap frame);}
     private void screenshot(FrameCallback callback){
-        if(captureBusy){callback.accept(null);return;}
-        captureBusy=true;
-        try{
+        if(capturing){callback.got(null);return;}
+        capturing=true;
+        try {
             takeScreenshot(Display.DEFAULT_DISPLAY,getMainExecutor(),new TakeScreenshotCallback(){
                 @Override public void onSuccess(ScreenshotResult result){
-                    captureBusy=false;
-                    HardwareBuffer buffer=result.getHardwareBuffer();
-                    Bitmap frame=null;
+                    capturing=false;Bitmap image=null;HardwareBuffer buf=result.getHardwareBuffer();
                     try{
-                        Bitmap wrapped=Bitmap.wrapHardwareBuffer(buffer,result.getColorSpace());
-                        if(wrapped!=null)frame=wrapped.copy(Bitmap.Config.ARGB_8888,false);
-                    }catch(Exception ignored){}finally{buffer.close();}
-                    callback.accept(frame);
+                        Bitmap wrapped=Bitmap.wrapHardwareBuffer(buf,result.getColorSpace());
+                        if(wrapped!=null)image=wrapped.copy(Bitmap.Config.ARGB_8888,false);
+                    }catch(Exception ignored){}finally{buf.close();}
+                    callback.got(image);
                 }
-                @Override public void onFailure(int code){captureBusy=false;callback.accept(null);}
+                @Override public void onFailure(int code){capturing=false;callback.got(null);}
             });
-        }catch(Exception e){captureBusy=false;callback.accept(null);}
+        }catch(Exception e){capturing=false;callback.got(null);}
     }
-    private void recognize(Bitmap frame){
-        if(recognizeBusy){frame.recycle();next(1000);return;}
-        recognizeBusy=true;
-        InputImage input=InputImage.fromBitmap(frame,0);
-        Task<Text> kr=korean.process(input);
-        Task<Text> en=latin.process(input);
-        Tasks.whenAll(kr,en).addOnCompleteListener(task->{
-            recognizeBusy=false;
-            if(!running){frame.recycle();return;}
+    private static final class Match{
+        float gx,gy,wx,wy,gs,ws;
+        int w,h;
+        boolean strong(){return gs>=GEAR_MIN&&ws>=WIN_MIN;}
+        boolean plausible(){return gs>=.55f&&ws>=.62f;}
+        String brief(){return "GEAR "+Math.round(gs*100)+"% / WIN "+Math.round(ws*100)+"%";}
+    }
+    private Match match(Bitmap frame){
+        if(!NativeVision.AVAILABLE||VisionTemplates.GEAR.length!=29*32||
+            VisionTemplates.WIN.length!=31*15)return null;
+        int w=frame.getWidth(),height=frame.getHeight();
+        if(w<=height*1.2f)return null;
+        int scaledW=Math.round(w*240f/height);
+        if(scaledW<320||scaledW>1200)return null;
+        Bitmap small=Bitmap.createScaledBitmap(frame,scaledW,240,true);
+        int[] pixels=new int[scaledW*240];small.getPixels(pixels,0,scaledW,0,0,scaledW,240);
+        if(small!=frame)small.recycle();
+        float[] result=NativeVision.findPair(pixels,scaledW,240,VisionTemplates.GEAR,VisionTemplates.WIN);
+        if(result==null||result.length!=6)return null;
+        Match m=new Match();m.w=w;m.h=height;
+        m.gx=result[0]*w/scaledW;m.gy=result[1]*height/240f;
+        m.wx=result[2]*w/scaledW;m.wy=result[3]*height/240f;
+        m.gs=result[4];m.ws=result[5];return m;
+    }
+    private void preview(){
+        if(running){say("STOP before SCAN");return;}
+        if(!gameForeground()){say("Open Limbus battle first");return;}
+        if(marker!=null)marker.setVisibility(View.GONE);
+        say("Scanning icons...");
+        h.postDelayed(()->screenshot(frame->{
+            if(frame==null){say("Screenshot unavailable");return;}
             try{
-                List<Candidate> found=new ArrayList<>();
-                if(kr.isSuccessful())addCandidates(found,kr.getResult(),frame.getWidth(),frame.getHeight());
-                if(en.isSuccessful())addCandidates(found,en.getResult(),frame.getWidth(),frame.getHeight());
-                if(!kr.isSuccessful()&&!en.isSuccessful()){stop("글자 인식 실패");return;}
-                decide(found);
-            }catch(Exception ex){stop("인식 오류");}
+                Match m=match(frame);
+                if(m==null){say("Unsupported screen format");return;}
+                say(m.brief()+(m.strong()?" - ready":" - uncertain"));
+                if(marker!=null){
+                    marker.update(m.ws>=WIN_MIN?m.wx:-1,m.ws>=WIN_MIN?m.wy:-1,
+                        m.gs>=GEAR_MIN?m.gx:-1,m.gs>=GEAR_MIN?m.gy:-1);
+                    marker.setVisibility(View.VISIBLE);
+                    h.postDelayed(()->{if(!running && marker!=null)marker.setVisibility(View.GONE);},7000);
+                }
+            }catch(Exception e){say("Scanner error");}
+            finally{frame.recycle();}
+        }),350);
+    }
+    private void begin(){
+        if(!NativeVision.AVAILABLE){say("Rust unavailable");return;}
+        if(!gameForeground()){say("Open Limbus battle first");return;}
+        if(capturing){say("Screenshot busy");return;}
+        if(marker!=null)marker.setVisibility(View.GONE);
+        phase=PHASE_WIN;confirmed=0;taps=0;failures=0;lastX=-1;lastY=-1;
+        startTime=SystemClock.elapsedRealtime();lastTouch=0;running=true;
+        say("AUTO - finding WIN + GEAR");schedule(500);
+    }
+    private final Runnable loop=()->{
+        if(!running)return;
+        if(SystemClock.elapsedRealtime()-startTime>MAX_DURATION||taps>=MAX_TAPS){stop("Safety limit");return;}
+        if(!gameForeground()){stop("Game not foreground");return;}
+        if(marker!=null)marker.setVisibility(View.GONE);
+        screenshot(frame->{
+            if(frame==null){stop("Screenshot failed");return;}
+            try{
+                Match m=match(frame);
+                if(m==null){stop("Unsupported view");return;}
+                handle(m);
+            }catch(Exception e){stop("Vision exception");}
             finally{frame.recycle();}
         });
-    }
-    private void addCandidates(List<Candidate> matches,Text text,int width,int height){
-        for(Text.TextBlock block:text.getTextBlocks()){
-            for(Text.Line line:block.getLines()){
-                maybeAdd(matches,line.getText(),line.getBoundingBox(),width,height);
-                for(Text.Element element:line.getElements()){
-                    maybeAdd(matches,element.getText(),element.getBoundingBox(),width,height);
-                }
-            }
+    };
+    private void handle(Match m){
+        float x=phase==PHASE_WIN?m.wx:m.gx;
+        float y=phase==PHASE_WIN?m.wy:m.gy;
+        boolean confident=phase==PHASE_WIN?m.strong():
+            // A ready button may change its appearance, but must remain next to Win Rate.
+            m.ws>=.62f && m.gs>=.52f &&
+            Math.abs(m.gx-rememberGearX)<=m.h*.042f &&
+            Math.abs(m.gy-rememberGearY)<=m.h*.042f;
+        // Only one slow, bounded action after two aligned screenshots.
+        if(!confident){
+            confirmed=0;lastX=-1;failures++;
+            if(failures>=15){stop("Icon not confidently matched - "+m.brief());return;}
+            say("SCAN "+m.brief()+" ("+failures+")");
+            schedule(2000);return;
         }
-    }
-    private void maybeAdd(List<Candidate> found,String label,Rect box,int width,int height){
-        if(box==null||label==null)return;
-        int kind=NativeVision.classify(label);
-        if(kind==0)return;
-        if(box.width()<12||box.height()<9||box.centerX()<0||box.centerX()>width||
-           box.centerY()<0||box.centerY()>height||box.width()>width*0.50f||box.height()>height*0.24f)return;
-        // Restrict interactive controls to the lower portion of the battle screen.
-        // Clear/VICTORY may appear in the upper portion.
-        if(kind==1 && box.centerY()<height*0.48f)return;
-        if(kind==2 && (box.centerY()<height*0.42f||box.centerX()<width*0.40f))return;
-        found.add(new Candidate(kind,box,label));
-    }
-    private Candidate choose(List<Candidate> found,int target){
-        Candidate best=null;
-        for(Candidate c:found){
-            if(c.type!=target)continue;
-            if(best==null||c.box.centerY()>best.box.centerY())best=c;
+        failures=0;
+        if(lastX>=0&&Math.abs(lastX-x)<m.h*.012f&&Math.abs(lastY-y)<m.h*.012f)confirmed++;
+        else confirmed=1;
+        lastX=x;lastY=y;
+        if(confirmed<2){say("CHECK "+m.brief());schedule(900);return;}
+        confirmed=0;lastX=-1;lastY=-1;
+        if(!gameForeground()){stop("Game not foreground");return;}
+        if(phase==PHASE_WIN){
+            rememberGearX=m.gx;rememberGearY=m.gy;
         }
-        return best;
-    }
-    private void decide(List<Candidate> found){
-        if(choose(found,3)!=null){
-            clearSteady++;
-            if(clearSteady>=2){stop("Battle ended");return;}
-        }else clearSteady=0;
-        long now=SystemClock.elapsedRealtime();
-        long elapsed=now-stateSince;
-        if(elapsed>55_000L){stop("No recognized button - 55s");return;}
-        Candidate c=choose(found,phase);
-        if(c==null){
-            steady=0;previousBox=null;miss++;
-            post((phase==PHASE_WIN?"SCAN WIN ":"SCAN START ")+miss);
-            next(1750);return;
-        }
-        miss=0;
-        if(previousBox!=null&&Math.abs(previousBox.centerX()-c.box.centerX())<30 &&
-            Math.abs(previousBox.centerY()-c.box.centerY())<30)steady++;
-        else steady=1;
-        previousBox=new Rect(c.box);
-        if(steady<2){post("CONFIRM "+c.label);next(950);return;}
-        steady=0;previousBox=null;
-        if(!verifyGame()){stop("Game not foreground");return;}
-        Path tap=new Path();tap.moveTo(c.box.centerX(),c.box.centerY());
-        GestureDescription gesture=new GestureDescription.Builder()
-            .addStroke(new GestureDescription.StrokeDescription(tap,0,95)).build();
-        final int clicked=phase;
-        boolean accepted=dispatchGesture(gesture,new GestureResultCallback(){
+        Path p=new Path();p.moveTo(x,y);
+        GestureDescription g=new GestureDescription.Builder()
+            .addStroke(new GestureDescription.StrokeDescription(p,0,110)).build();
+        final int phaseAtTouch=phase;
+        boolean accepted=dispatchGesture(g,new GestureResultCallback(){
             @Override public void onCompleted(GestureDescription done){
                 if(!running)return;
-                taps++;stateSince=SystemClock.elapsedRealtime();
-                phase=clicked==PHASE_WIN?PHASE_START:PHASE_WIN;
-                post((clicked==PHASE_WIN?"WIN TAP ":"START TAP ")+taps+"/"+MAX_TAPS);
-                next(clicked==PHASE_WIN?1400:7000);
+                taps++;lastTouch=SystemClock.elapsedRealtime();
+                phase=phaseAtTouch==PHASE_WIN?PHASE_FIRE:PHASE_WIN;
+                say((phaseAtTouch==PHASE_WIN?"WIN":"FIRE")+" tapped ("+taps+")");
+                schedule(phaseAtTouch==PHASE_WIN?1800:8500);
             }
-            @Override public void onCancelled(GestureDescription done){stop("Gesture cancelled");}
+            @Override public void onCancelled(GestureDescription done){stop("Touch cancelled");}
         },h);
-        if(!accepted)stop("Gesture refused");
+        if(!accepted)stop("Touch rejected");
     }
 }

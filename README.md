@@ -1,45 +1,32 @@
-# Limbus Auto Rust v0.3.1 — Android OCR overlay visibility fix
+# Limbus Auto Rust 0.4 — screenshot icon pairing prototype
 
-**Experimental, not gameplay-tested.** Android v0.3 uses on-device Korean/Latin OCR with automatic text bounding boxes. No coordinate calibration or button-registration step. The Rust core classifies OCR labels, Android's ML Kit provides text detection, and the AccessibilityService performs normal touch gestures. It requires Android 11+, ARM64, and no computer during operation.
+**Experimental / unverified in actual gameplay.** This app uses the **one screenshot supplied by the user** to build a small pair of grayscale icon templates. The main action is no longer dependent on OCR extracting button text, which previously led to mistaps.
 
-**Only regular combat is attempted**: find Korean \`승률\` (or \`WIN RATE\`), then detect \`START\`/\`전투 시작\`/\`전투 개시\`, then repeat. Two matching OCR frames are required. Safety stops include unrecognized screen after 55 seconds, combat-end keyword, foreground app change, 40 gestures, or 15 minutes.
+## Android usage
 
-**Not implemented:** stage entry/exit, moving within story dungeons (including chapter 1's 1-11), reward collection, Mirror Dungeon routing, boss mechanics, and icon-only begin-battle control recognition. If the battle start button is graphical or OCR cannot locate it, automation stops rather than guessing coordinates. Do not assume this can clear a stage.
+1. Android 11+, arm64. Install the APK (package \`dev.ashkite.limbusauto.icons\`, separate from earlier versions).
+2. Enable the Limbus Auto Accessibility Service, then open a regular Limbus battle.
+3. A **top-center** controller shows \`SCAN\`, \`AUTO\`, \`STOP\`.
+4. Tap \`SCAN\` first. It compares bottom-right pixels using Rust normalized cross-correlation and reports GEAR and WIN percentages. If scores exceed thresholds, markers identify detected buttons: **yellow circle for the start gear**, **green circle for Win Rate**.
+5. Only if both circles match the intended buttons, press \`AUTO\` to attempt selecting Win Rate followed by tapping the adjacent gear to start a combat turn. Supervise all trials; stop immediately if unexpected.
 
-**Android package ID:** \`dev.ashkite.limbusauto.ocr\`. It is deliberately distinct from earlier v0.2 because GitHub debug-signing keys vary between builds.
+No game server/API calls, no modifying/injecting the game process, and no network permission. All screenshots are processed on device. Rust JNI performs pattern matching; Java AccessibilityService captures screenshots and sends touch gestures.
 
-## Download and test
+## Current limitations
 
-1. On GitHub -> Actions -> \`Build Android APK and Windows\` -> select a *successful* run -> download the \`LimbusAutoRust-android-debug\` artifact ZIP.
-2. Extract \`app-debug.apk\`, install on Android 11+ ARM64.
-3. Enable \`Limbus Auto OCR 전투 제어\` in accessibility settings. (Android 13+ may require explicitly allowing restricted settings for sideloaded apps via App Info.)
-4. Open Limbus Company. When a **regular battle is on-screen**, press **자동 시작** in the overlay.
-5. Watch the first attempt and tap **정지** on any unexpected behavior. If the button text is missing, the app stops after 55 seconds.
-6. When finished, disable the accessibility service.
+- Derived from **one low-resolution screenshot**, so UI textures, layout, zoom, aspect ratios, game version, or selected/disabled state may prevent matches.
+- The start button is paired with the Win Rate button. After selecting Win Rate, it may change appearance and become unrecognizable, in which case the controller **stops instead of guessing**.
+- Auto actions require two consistent scans, bounded by 40 touches/15 minutes; search gives up after repeated failures. Not fully autonomous or validated.
+- No character strategy, stage movement, stage completion, Mirror Dungeon pathing, boss mechanics or rewards.
+- PC version is still the **older v0.2 manual-prototype EXE**, even if built in the same workflow.
+- The app may violate Project Moon's automation rules; account restrictions are possible.
 
-The bundled ML Kit models (Korean and Latin) run offline and screenshots do not leave the phone. **No INTERNET permission is requested; no game API calls or process-memory access.**
+## Building
 
-## Windows
+GitHub Actions -> \`Build Android APK and Windows\` -> last successful run -> artifact \`LimbusAutoRust-android-OCR-v0.3\` (the workflow artifact label is historical; verify APK package name \`dev.ashkite.limbusauto.icons\` and version \`0.4.0-icon-matcher\`).
 
-The Windows build remains the **v0.2 manual-calibration prototype**. It has not been upgraded to OCR, despite being built in the same workflow.
+The APK is debug-signed in CI. Since CI uses ephemeral signing keys, uninstall the older package if installation fails due to signature mismatch.
 
-## Limitations and risks
-
-This is not affiliated with Project Moon. The developer and publisher policies may disallow automation even when it uses regular screen touches. Using it may risk account restrictions. A successful GitHub Actions build verifies only compilation, **not correctness or permission to use it**. Unity/Android screenshot restrictions or unusual UI scaling may block recognition. Screenshots and the game layout have not been supplied for a real-world recognition test.
-
-See [ML Kit bundled text recognition documentation](https://developers.google.com/ml-kit/vision/text-recognition/v2/android) and [Android AccessibilityService documentation](https://developer.android.com/reference/android/accessibilityservice/AccessibilityService).
-
-## v0.3.1 hotfix
-
-- Keep the accessibility overlay visible while the service is connected. Previous code hid the controller whenever an unrelated Android window-state event occurred.
-- Ignore transient system/keyboard window events and check the active root package before input.
-- Show explicit service/game detection status and avoid tapping if the game is not recognized.
-- First run still requires manual supervision. Device gameplay has **not** been tested.
-
-## v0.3.2 overlay layout hotfix
-
-- Move accessibility controller to **top center**.
-- Larger buttons, explicit horizontal button-row width, larger title/status labels.
-- Control labels use ASCII `AUTO ON` / `STOP` to avoid CJK font fallback/display issues in the small overlay; Android's Java compilation is set to UTF-8.
-- Keep controls visible while screenshot/OCR is in progress, reducing flickering. OCR only considers likely battle controls lower on screen.
-- **Not fixed/validated:** erratic WIN RATE tapping and actual start-battle detection. Test only while supervising, do not assume the app reliably fights.
+References:
+- Android Accessibility Service screenshot and gesture APIs: https://developer.android.com/reference/android/accessibilityservice/AccessibilityService
+- Rust JNI crate: https://docs.rs/jni/latest/jni/

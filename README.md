@@ -35,3 +35,11 @@ See [ML Kit bundled text recognition documentation](https://developers.google.co
 - Ignore transient system/keyboard window events and check the active root package before input.
 - Show explicit service/game detection status and avoid tapping if the game is not recognized.
 - First run still requires manual supervision. Device gameplay has **not** been tested.
+
+## v0.3.2 overlay layout hotfix
+
+- Move accessibility controller to **top center**.
+- Larger buttons, explicit horizontal button-row width, larger title/status labels.
+- Control labels use ASCII `AUTO ON` / `STOP` to avoid CJK font fallback/display issues in the small overlay; Android's Java compilation is set to UTF-8.
+- Keep controls visible while screenshot/OCR is in progress, reducing flickering. OCR only considers likely battle controls lower on screen.
+- **Not fixed/validated:** erratic WIN RATE tapping and actual start-battle detection. Test only while supervising, do not assume the app reliably fights.

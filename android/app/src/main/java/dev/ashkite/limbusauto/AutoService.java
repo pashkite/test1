@@ -183,6 +183,9 @@ public final class AutoService extends AccessibilityService {
         status.setVisibility(collapsed?View.GONE:View.VISIBLE);
         actionButtons.setVisibility(collapsed?View.GONE:View.VISIBLE);
         dragTitle.setText(collapsed?"DRAG":"DRAG  ·  LIMBUS AUTO 0.4.1");
+        dragTitle.setLayoutParams(collapsed
+            ? new LinearLayout.LayoutParams(dp(72),dp(42))
+            : new LinearLayout.LayoutParams(0,dp(42),1f));
         collapseButton.setText(collapsed?"OPEN":"HIDE");
         getSharedPreferences("overlay_layout",MODE_PRIVATE)
             .edit().putBoolean("collapsed",collapsed).apply();

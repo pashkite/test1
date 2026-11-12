@@ -155,6 +155,8 @@ public final class AutoService extends AccessibilityService {
         LinearLayout buttons=new LinearLayout(this);
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         buttons.setGravity(Gravity.CENTER_HORIZONTAL);
+        // Fix a real width so weighted buttons cannot collapse in WRAP_CONTENT overlay.
+        buttons.setLayoutParams(new LinearLayout.LayoutParams(dp(290),LinearLayout.LayoutParams.WRAP_CONTENT));
         buttons.addView(button("AUTO ON",this::begin));
         buttons.addView(button("STOP",()->stop("User stopped")));
         overlay.addView(buttons);

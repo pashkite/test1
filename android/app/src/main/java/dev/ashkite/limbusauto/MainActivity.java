@@ -24,7 +24,7 @@ public final class MainActivity extends Activity {
         super.onCreate(saved);
         ScrollView scroll=new ScrollView(this);
         LinearLayout root=new LinearLayout(this);root.setPadding(dp(22),dp(20),dp(22),dp(20));root.setOrientation(LinearLayout.VERTICAL);
-        root.addView(text("Limbus Auto OCR · v0.3",24));
+        root.addView(text("Limbus Auto OCR · v0.3.1",24));
         root.addView(text("PC 연결 없이 작동하는 Android 11+ ARM64 실험 앱.\n\n"+
             "버튼 위치를 등록할 필요 없이 한국어·영어 글자를 자동 탐색합니다. "+
             "Rust는 글자 분류를, ML Kit는 기기 내부 글자 인식을 담당합니다. "+
@@ -41,10 +41,10 @@ public final class MainActivity extends Activity {
             if(launch!=null)startActivity(launch);
             else new AlertDialog.Builder(this).setMessage("림버스 앱을 찾지 못했어. 게임을 직접 실행해 줘.").setPositiveButton("확인",null).show();
         });
-        root.addView(text("3. 게임에서 일반 전투 화면으로 이동합니다.\n"+
-            "4. 게임 화면 오른쪽 위의 작은 컨트롤러에서 ‘자동 시작’을 누릅니다.\n"+
-            "5. 글자 인식이 2회 일치하면 ‘승률’→‘START/전투 시작’을 터치합니다.\n"+
-            "6. 앱이 버튼을 찾지 못하거나 예상하지 못한 화면에 도달하면 자동으로 멈춥니다.\n\n"+
+        root.addView(text("3. 화면 오른쪽 위에 컨트롤러가 보이면 접근성 서비스가 실행 중입니다.\n게임 감지에 실패해도 버튼은 계속 표시됩니다.\n4. 게임에서 일반 전투 화면으로 이동합니다.\n"+
+            "5. 컨트롤러의 상태가 '림버스 감지됨'이면 ‘자동 시작’을 누릅니다.\n"+
+            "6. 글자 인식이 2회 일치하면 ‘승률’→‘START/전투 시작’을 터치합니다.\n"+
+            "7. 앱이 버튼을 찾지 못하거나 예상하지 못한 화면에 도달하면 자동으로 멈춥니다.\n\n"+
             "현재 제외: 스테이지 내부 이동·보상 선택·거울 던전·보스 기믹. "+
             "전투 시작이 글자 없는 아이콘인 경우 인식하지 못할 수 있습니다.\n\n"+
             "반드시 화면을 지켜보며 첫 실행을 시험하고, 문제가 있으면 즉시 '정지'를 누르세요.",15));

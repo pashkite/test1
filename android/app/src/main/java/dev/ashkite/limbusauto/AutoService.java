@@ -5,6 +5,7 @@ import android.accessibilityservice.GestureDescription;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Path;
+import android.graphics.Typeface;
 import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.HardwareBuffer;
@@ -44,6 +45,9 @@ public final class AutoService extends AccessibilityService {
     private WindowManager wm;
     private LinearLayout overlay;
     private TextView status;
+    private TextView heading;
+    private static final String UI_READY="READY - open Limbus battle";
+    private int dp(float value){return (int)(value*getResources().getDisplayMetrics().density+0.5f);}
     private TextRecognizer korean, latin;
     private boolean gameVisible=false, running=false, captureBusy=false, recognizeBusy=false;
     private int phase=PHASE_WIN, taps=0, miss=0, steady=0, clearSteady=0;
@@ -90,48 +94,83 @@ public final class AutoService extends AccessibilityService {
     private void next(long millis) { h.removeCallbacks(loop);if(running)h.postDelayed(loop,millis); }
     private final Runnable loop=()->{
         if(!running)return;
-        if(!verifyGame()){stop("게임 화면을 찾지 못함");return;}
-        if(taps>=MAX_TAPS||SystemClock.elapsedRealtime()-begun>=MAX_MILLIS){stop("안전 제한");return;}
-        // The overlay must not appear in the OCR screenshot.
-        if(overlay!=null)overlay.setVisibility(View.INVISIBLE);
+        if(!verifyGame()){stop("Game not detected");return;}
+        if(taps>=MAX_TAPS||SystemClock.elapsedRealtime()-begun>=MAX_MILLIS){stop("Safety limit");return;}
+        // Overlay stays visible; OCR candidates for battle controls must be in lower half.
+        // This avoids an apparent missing-button problem while scanning.
         h.postDelayed(()->screenshot(frame->{
-            if(overlay!=null)overlay.setVisibility(View.VISIBLE);
             if(!running){if(frame!=null)frame.recycle();return;}
-            if(frame==null){stop("화면 캡처 실패");return;}
+            if(frame==null){stop("Screenshot unavailable");return;}
             recognize(frame);
         }),250);
     };
     private interface FrameCallback { void accept(Bitmap frame); }
     private Button button(String title, Runnable click) {
-        Button b=new Button(this);b.setText(title);b.setAllCaps(false);b.setTextSize(11);
-        b.setMinimumWidth(0);b.setMinimumHeight(0);b.setMinWidth(0);b.setMinHeight(0);b.setPadding(4,0,4,0);
-        b.setOnClickListener(v->click.run());return b;
+        Button b=new Button(this);
+        b.setText(title);
+        b.setAllCaps(false);
+        b.setTextSize(15f);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setTextColor(Color.BLACK);
+        b.setSingleLine(true);
+        b.setMinimumWidth(dp(104));
+        b.setMinWidth(dp(104));
+        b.setMinHeight(dp(44));
+        b.setMinimumHeight(dp(44));
+        b.setPadding(dp(12),dp(5),dp(12),dp(5));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(48),1f);
+        lp.setMargins(dp(4),dp(4),dp(4),dp(4));
+        b.setLayoutParams(lp);
+        b.setOnClickListener(v->click.run());
+        return b;
     }
     @Override protected void onServiceConnected(){
         super.onServiceConnected();
         korean=TextRecognition.getClient(new KoreanTextRecognizerOptions.Builder().build());
         latin=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         wm=(WindowManager)getSystemService(WINDOW_SERVICE);
-        overlay=new LinearLayout(this);overlay.setOrientation(LinearLayout.VERTICAL);overlay.setPadding(5,5,5,5);
-        GradientDrawable bg=new GradientDrawable();bg.setColor(Color.argb(230,24,30,38));bg.setCornerRadius(14);overlay.setBackground(bg);
-        status=new TextView(this);status.setTextColor(Color.WHITE);status.setTextSize(11);status.setText("준비 / 수동 등록 불필요");
+        overlay=new LinearLayout(this);
+        overlay.setOrientation(LinearLayout.VERTICAL);
+        overlay.setPadding(dp(10),dp(6),dp(10),dp(6));
+        GradientDrawable bg=new GradientDrawable();
+        bg.setColor(Color.argb(242,24,30,38));
+        bg.setCornerRadius(dp(14));
+        overlay.setBackground(bg);
+        heading=new TextView(this);
+        heading.setText("LIMBUS AUTO");
+        heading.setTextColor(Color.WHITE);
+        heading.setTypeface(Typeface.DEFAULT_BOLD);
+        heading.setTextSize(14f);
+        heading.setGravity(Gravity.CENTER);
+        overlay.addView(heading);
+        status=new TextView(this);
+        status.setTextColor(Color.WHITE);
+        status.setTextSize(13f);
+        status.setTypeface(Typeface.DEFAULT);
+        status.setGravity(Gravity.CENTER);
+        status.setMaxLines(2);
+        status.setText(UI_READY);
+        status.setPadding(dp(8),dp(5),dp(8),dp(5));
         overlay.addView(status);
-        LinearLayout buttons=new LinearLayout(this);buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.addView(button("자동 시작",this::begin));
-        buttons.addView(button("정지",()->stop("사용자 중지")));
+        LinearLayout buttons=new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.setGravity(Gravity.CENTER_HORIZONTAL);
+        buttons.addView(button("AUTO ON",this::begin));
+        buttons.addView(button("STOP",()->stop("User stopped")));
         overlay.addView(buttons);
         WindowManager.LayoutParams lp=new WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             android.graphics.PixelFormat.TRANSLUCENT);
-        lp.gravity=Gravity.TOP|Gravity.END;lp.x=12;lp.y=90;
+        lp.gravity=Gravity.TOP|Gravity.CENTER_HORIZONTAL;
+        lp.x=0;lp.y=dp(18);
         wm.addView(overlay,lp);overlay.setVisibility(View.VISIBLE);
         try{
             if(getRootInActiveWindow()!=null&&getRootInActiveWindow().getPackageName()!=null){
                 gameVisible=GAME.contentEquals(getRootInActiveWindow().getPackageName());
                 if(gameVisible) lastGameEvent=SystemClock.elapsedRealtime();
-                post(gameVisible?"서비스 실행 · 림버스 감지":"서비스 실행 · 게임 화면 대기");
+                post(gameVisible?"READY - GAME FOUND":UI_READY);
             }
         }catch(Exception ignored){}
     }
@@ -141,7 +180,7 @@ public final class AutoService extends AccessibilityService {
         if(pkg.equals(getPackageName()))return;
         if(GAME.equals(pkg)){
             gameVisible=true;lastGameEvent=SystemClock.elapsedRealtime();lastForeground=pkg;
-            if(!running)post("서비스 활성 · 림버스 감지됨");
+            if(!running)post("READY - GAME FOUND");
             return;
         }
         // Only an actual non-system foreground app should invalidate the game state.
@@ -149,8 +188,8 @@ public final class AutoService extends AccessibilityService {
         if(isSystemPackage(pkg))return;
         if(!verifyGame()){
             lastForeground=pkg;
-            if(running)stop("게임 종료 또는 다른 앱 전환");
-            else post("서비스 활성 · 림버스 대기");
+            if(running)stop("Game left foreground");
+            else post(UI_READY);
         }
     }
     @Override public void onInterrupt(){stop("서비스 중단");}
@@ -165,14 +204,14 @@ public final class AutoService extends AccessibilityService {
         post("정지: "+reason);
     }
     private void begin(){
-        if(!NativeVision.AVAILABLE){post("Rust 라이브러리 없음");return;}
+        if(!NativeVision.AVAILABLE){post("ERROR - Rust unavailable");return;}
         if(!verifyGame()){
-            post("게임 감지 실패 · 화면: "+lastForeground);return;
+            post("WAIT - game not detected");return;
         }
-        if(captureBusy||recognizeBusy){post("화면 인식 중");return;}
+        if(captureBusy||recognizeBusy){post("WAIT - screen busy");return;}
         phase=PHASE_WIN;taps=0;miss=0;steady=0;clearSteady=0;previousBox=null;
         begun=stateSince=SystemClock.elapsedRealtime();running=true;
-        post("자동 승률 탐색");next(500);
+        post("SCAN - win rate");next(500);
     }
     private void screenshot(FrameCallback callback){
         if(captureBusy){callback.accept(null);return;}
@@ -245,15 +284,15 @@ public final class AutoService extends AccessibilityService {
     private void decide(List<Candidate> found){
         if(choose(found,3)!=null){
             clearSteady++;
-            if(clearSteady>=2){stop("전투 종료 감지");return;}
+            if(clearSteady>=2){stop("Battle ended");return;}
         }else clearSteady=0;
         long now=SystemClock.elapsedRealtime();
         long elapsed=now-stateSince;
-        if(elapsed>55_000L){stop("버튼 미발견 (55초)");return;}
+        if(elapsed>55_000L){stop("No recognized button - 55s");return;}
         Candidate c=choose(found,phase);
         if(c==null){
             steady=0;previousBox=null;miss++;
-            post((phase==PHASE_WIN?"승률":"전투 시작")+" 탐색 ("+miss+")");
+            post((phase==PHASE_WIN?"SCAN WIN ":"SCAN START ")+miss);
             next(1750);return;
         }
         miss=0;
@@ -261,9 +300,9 @@ public final class AutoService extends AccessibilityService {
             Math.abs(previousBox.centerY()-c.box.centerY())<30)steady++;
         else steady=1;
         previousBox=new Rect(c.box);
-        if(steady<2){post("인식 재확인: "+c.label);next(950);return;}
+        if(steady<2){post("CONFIRM "+c.label);next(950);return;}
         steady=0;previousBox=null;
-        if(!verifyGame()){stop("게임에서 벗어남");return;}
+        if(!verifyGame()){stop("Game not foreground");return;}
         Path tap=new Path();tap.moveTo(c.box.centerX(),c.box.centerY());
         GestureDescription gesture=new GestureDescription.Builder()
             .addStroke(new GestureDescription.StrokeDescription(tap,0,95)).build();
@@ -273,11 +312,11 @@ public final class AutoService extends AccessibilityService {
                 if(!running)return;
                 taps++;stateSince=SystemClock.elapsedRealtime();
                 phase=clicked==PHASE_WIN?PHASE_START:PHASE_WIN;
-                post((clicked==PHASE_WIN?"승률":"전투 시작")+" 누름 · "+taps+"/"+MAX_TAPS);
+                post((clicked==PHASE_WIN?"WIN TAP ":"START TAP ")+taps+"/"+MAX_TAPS);
                 next(clicked==PHASE_WIN?1400:7000);
             }
-            @Override public void onCancelled(GestureDescription done){stop("터치 취소");}
+            @Override public void onCancelled(GestureDescription done){stop("Gesture cancelled");}
         },h);
-        if(!accepted)stop("터치 요청 거부");
+        if(!accepted)stop("Gesture refused");
     }
 }

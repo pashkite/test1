@@ -287,7 +287,7 @@ mod control_test {
         }
         let out=locate_panel_controls(&pixels,width,height,&idle,&selected);
         assert_eq!(out[0],401.0);
-        assert!(out[4]>.99);
+        assert!(out[4]>0.99);
     }
     #[test]fn constant_frame_is_rejected(){
         let src=vec![0xff080808u32;240*520];

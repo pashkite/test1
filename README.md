@@ -1,4 +1,4 @@
-# Limbus Auto Rust v0.3 — Android auto-OCR prototype
+# Limbus Auto Rust v0.3.1 — Android OCR overlay visibility fix
 
 **Experimental, not gameplay-tested.** Android v0.3 uses on-device Korean/Latin OCR with automatic text bounding boxes. No coordinate calibration or button-registration step. The Rust core classifies OCR labels, Android's ML Kit provides text detection, and the AccessibilityService performs normal touch gestures. It requires Android 11+, ARM64, and no computer during operation.
 
@@ -28,3 +28,10 @@ The Windows build remains the **v0.2 manual-calibration prototype**. It has not 
 This is not affiliated with Project Moon. The developer and publisher policies may disallow automation even when it uses regular screen touches. Using it may risk account restrictions. A successful GitHub Actions build verifies only compilation, **not correctness or permission to use it**. Unity/Android screenshot restrictions or unusual UI scaling may block recognition. Screenshots and the game layout have not been supplied for a real-world recognition test.
 
 See [ML Kit bundled text recognition documentation](https://developers.google.com/ml-kit/vision/text-recognition/v2/android) and [Android AccessibilityService documentation](https://developer.android.com/reference/android/accessibilityservice/AccessibilityService).
+
+## v0.3.1 hotfix
+
+- Keep the accessibility overlay visible while the service is connected. Previous code hid the controller whenever an unrelated Android window-state event occurred.
+- Ignore transient system/keyboard window events and check the active root package before input.
+- Show explicit service/game detection status and avoid tapping if the game is not recognized.
+- First run still requires manual supervision. Device gameplay has **not** been tested.
